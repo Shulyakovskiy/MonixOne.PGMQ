@@ -9,6 +9,7 @@ namespace MonixOne.Queue.Pgmq;
 internal sealed class PgmqWorker<T>(
     string consumerName,
     PgmqClient client,
+    PgmqIdempotencyStore idempotencyStore,
     QueueJsonSerializer serializer,
     IServiceScopeFactory scopeFactory,
     IOptions<PgmqOptions> options,
@@ -58,24 +59,60 @@ internal sealed class PgmqWorker<T>(
     {
         var stopwatch = Stopwatch.StartNew();
         QueueEnvelope<T>? envelope = null;
+        Guid? leaseToken = null;
         try
         {
             envelope = serializer.Deserialize<T>(message.Body);
+            var claim = await idempotencyStore.TryAcquireAsync(
+                consumerName,
+                envelope.IdempotencyKey,
+                consumer.IdempotencyLease,
+                cancellationToken);
+            if (claim.IsCompleted)
+            {
+                // A previous delivery completed this logical message. Acknowledge only the duplicate PGMQ delivery.
+                await client.DeleteAsync(consumer.Queue, message.Id, cancellationToken);
+                logger.LogDebug("PGMQ duplicate skipped. Queue {Queue}, IdempotencyKey {IdempotencyKey}, MessageId {MessageId}.", consumer.Queue, envelope.IdempotencyKey, message.Id);
+                return;
+            }
+
+            if (claim.IsInProgress)
+            {
+                var retryDelay = claim.LeaseExpiresAt is { } leaseExpiresAt
+                    ? leaseExpiresAt - DateTimeOffset.UtcNow
+                    : consumer.PollingInterval;
+                await client.SetVisibilityAsync(consumer.Queue, message.Id, retryDelay > TimeSpan.Zero ? retryDelay : consumer.PollingInterval, cancellationToken);
+                return;
+            }
+
+            leaseToken = claim.LeaseToken!.Value;
             // A scope per message isolates DbContext and other scoped dependencies across concurrent deliveries.
             await using var scope = scopeFactory.CreateAsyncScope();
             var handler = scope.ServiceProvider.GetRequiredService<IQueueHandler<T>>();
             await handler.HandleAsync(envelope.Payload, cancellationToken);
-            // Deletion is the acknowledgement. A failure between HandleAsync and delete can redeliver the message,
-            // so handlers must be idempotent and should use the envelope id as their deduplication key.
+            if (!await idempotencyStore.CompleteAsync(consumerName, envelope.IdempotencyKey, leaseToken.Value, cancellationToken))
+            {
+                throw new QueueException($"The idempotency lease was lost for key '{envelope.IdempotencyKey}'.");
+            }
+
+            // Completion is durable before acknowledgement. A redelivery observes the completed key and is only acknowledged.
             await client.DeleteAsync(consumer.Queue, message.Id, cancellationToken);
             logger.LogDebug("PGMQ message processed. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}, DeliveryCount {DeliveryCount}, DurationMs {DurationMs}.", consumer.Queue, envelope.Id, envelope.Type, message.ReadCount, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (envelope is not null && leaseToken is { } token)
+            {
+                await idempotencyStore.ReleaseAsync(consumerName, envelope.IdempotencyKey, token);
+            }
             throw;
         }
         catch (Exception exception)
         {
+            if (envelope is not null && leaseToken is { } token)
+            {
+                await idempotencyStore.ReleaseAsync(consumerName, envelope.IdempotencyKey, token);
+            }
             // pgmq.read has already made this message invisible; a failed handler must not acknowledge it.
             logger.LogError(exception, "PGMQ message processing failed. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}, DeliveryCount {DeliveryCount}, DurationMs {DurationMs}.", consumer.Queue, envelope?.Id, envelope?.Type, message.ReadCount, stopwatch.ElapsedMilliseconds);
             if (message.ReadCount >= consumer.MaxAttempts)

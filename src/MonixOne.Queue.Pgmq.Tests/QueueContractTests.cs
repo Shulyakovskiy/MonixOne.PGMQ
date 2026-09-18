@@ -38,6 +38,16 @@ public sealed class QueueContractTests
         PgmqDeploymentScripts.ReadUpgradeSql("1.13.0").ShouldBeEmpty();
     }
 
+    [Fact]
+    public void QueueSerialization_RejectsMissingIdempotencyKey()
+    {
+        var serializer = new QueueJsonSerializer();
+
+        Should.Throw<ArgumentException>(() => serializer.Serialize(
+            new VersionedMessage(Guid.NewGuid()),
+            new QueueSendOptions { IdempotencyKey = " " }));
+    }
+
     [QueueMessage("notification.requested", Version = 2)]
     private sealed record VersionedMessage(Guid UserId);
 }

@@ -32,6 +32,7 @@ public sealed class PgmqOptionsValidatorTests
         consumer.VisibilityTimeout.ShouldBe(TimeSpan.FromMinutes(3));
         consumer.MaxAttempts.ShouldBe(7);
         consumer.Concurrency.ShouldBe(3);
+        consumer.IdempotencyLease.ShouldBe(TimeSpan.FromMinutes(6));
         consumer.RetryDelays.ShouldBe([TimeSpan.FromSeconds(10)]);
     }
 

@@ -7,9 +7,10 @@
 - Доставка — **at-least-once**.
 - Невосстанавливаемые сообщения попадают в `<queue>-dlq`.
 
-> ⚠️ Обработчик обязан быть идемпотентным.
-> Используйте `QueueEnvelope.Id` как ключ дедупликации,
-> например в таблице `processed_messages`.
+> ⚠️ Для каждого сообщения обязателен стабильный
+> `QueueSendOptions.IdempotencyKey`.
+> Пакет хранит его в общей PostgreSQL-таблице и не допускает
+> параллельную обработку одного ключа разными репликами.
 
 ## 📦 SQL-only provisioning PGMQ
 
@@ -65,6 +66,7 @@ builder.Services.AddHealthChecks().AddPgmq();
     "Defaults": {
       "BatchSize": 10,
       "VisibilityTimeout": "00:01:00",
+      "IdempotencyLease": "00:02:00",
       "PollingInterval": "00:00:01",
       "MaxAttempts": 5,
       "Concurrency": 1
@@ -98,8 +100,16 @@ public sealed record NotificationRequested(Guid UserId, string Text);
 await queue.SendAsync(
     "notifications",
     new NotificationRequested(userId, text),
+    new QueueSendOptions
+    {
+        IdempotencyKey = "notification:3f5d8f0a-0a65-4bfb-9c17-c0851ba4dc0f"
+    },
     cancellationToken: cancellationToken);
 ```
+
+`IdempotencyKey` обязателен, не должен изменяться при повторной отправке
+одного логического сообщения и имеет область уникальности consumer-а.
+Для batch API каждый `QueueBatchItem<T>` содержит свой `QueueSendOptions`.
 
 `QueueSendOptions.CorrelationId` — прикладная метка.
 W3C trace ID берётся из активного `Activity`
@@ -135,23 +145,30 @@ public sealed class NotificationRequestedHandler
 > `HandleAsync`.
 > Автоматическое продление срока невидимости
 > в этой версии не реализовано.
+> `IdempotencyLease` должен быть больше `VisibilityTimeout` и больше
+> максимальной ожидаемой длительности обработчика.
 
 ## 🔁 Доставка и повторные попытки
 
 1. `pgmq.read` атомарно забирает сообщение
    и скрывает его на `VisibilityTimeout`.
 2. Фоновый обработчик вызывает `HandleAsync`
-   без открытой SQL-транзакции.
-3. После успешного обработчика выполняется `pgmq.delete`.
+   только после атомарного захвата idempotency lease.
+3. После успешного обработчика ключ фиксируется как `completed`,
+   затем выполняется `pgmq.delete`.
    Это подтверждение доставки.
 4. При ошибке задаётся следующая задержка повтора.
 5. После `MaxAttempts` сообщение атомарно копируется в DLQ
    и удаляется из исходной очереди.
 
 Сбой между успешным `HandleAsync` и `pgmq.delete`
-приводит к повторной доставке.
-Это нормальное свойство at-least-once доставки,
-а не ошибка фонового обработчика.
+приводит к повторной доставке, но completed-ключ не позволяет
+повторно вызвать handler: дубликат только подтверждается.
+
+Сбой до фиксации `completed` остаётся at-least-once сценарием.
+Критичные доменные изменения и запись idempotency key должны быть
+в одной транзакции прикладного хранилища, если нужна строгая
+атомарность бизнес-эффекта.
 
 DLQ содержит исходное сообщение, исходную очередь и ID,
 число доставок, время ошибки,

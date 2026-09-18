@@ -12,11 +12,19 @@ internal sealed class QueueJsonSerializer
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public string Serialize<T>(T message, QueueSendOptions? sendOptions)
+    public string Serialize<T>(T message, QueueSendOptions sendOptions)
     {
+        ArgumentNullException.ThrowIfNull(sendOptions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sendOptions.IdempotencyKey);
+        if (sendOptions.IdempotencyKey.Length > 512)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sendOptions), "IdempotencyKey must not exceed 512 characters.");
+        }
+
         var attribute = typeof(T).GetCustomAttribute<QueueMessageAttribute>();
         var envelope = new QueueEnvelope<T>(
             Guid.CreateVersion7(),
+            sendOptions.IdempotencyKey,
             attribute?.Type ?? typeof(T).FullName ?? typeof(T).Name,
             attribute?.Version ?? 1,
             sendOptions?.Source,
@@ -29,9 +37,17 @@ internal sealed class QueueJsonSerializer
         return JsonSerializer.Serialize(envelope, _options);
     }
 
-    public QueueEnvelope<T> Deserialize<T>(string body) =>
-        JsonSerializer.Deserialize<QueueEnvelope<T>>(body, _options)
-        ?? throw new QueueException("Queue message envelope is empty.");
+    public QueueEnvelope<T> Deserialize<T>(string body)
+    {
+        var envelope = JsonSerializer.Deserialize<QueueEnvelope<T>>(body, _options)
+            ?? throw new QueueException("Queue message envelope is empty.");
+        if (string.IsNullOrWhiteSpace(envelope.IdempotencyKey))
+        {
+            throw new QueueException("Queue message idempotency key is required.");
+        }
+
+        return envelope;
+    }
 
     public string Serialize<T>(T value) => JsonSerializer.Serialize(value, _options);
 }

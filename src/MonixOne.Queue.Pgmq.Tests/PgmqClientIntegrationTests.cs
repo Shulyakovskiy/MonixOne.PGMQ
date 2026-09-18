@@ -58,4 +58,22 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         secondDelivery.ReadCount.ShouldBe(2);
         await fixture.Client.DeleteAsync(fixture.Queue, messageId, TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task IdempotencyStore_AllowsOneReplicaAndSkipsCompletedDuplicate()
+    {
+        var store = new PgmqIdempotencyStore(fixture.DataSource);
+        const string consumer = "notifications";
+        var key = $"notification:{Guid.NewGuid():N}";
+
+        var first = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+        var competing = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+
+        first.IsAcquired.ShouldBeTrue();
+        competing.IsInProgress.ShouldBeTrue();
+        (await store.CompleteAsync(consumer, key, first.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
+
+        var duplicate = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+        duplicate.IsCompleted.ShouldBeTrue();
+    }
 }

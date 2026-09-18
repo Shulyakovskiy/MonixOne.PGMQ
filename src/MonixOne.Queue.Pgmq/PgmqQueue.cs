@@ -6,7 +6,7 @@ internal sealed class PgmqQueue(
 {
     public Task<long> SendAsync<T>(
         string queue, T message,
-        QueueSendOptions? options = null,
+        QueueSendOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
@@ -15,8 +15,7 @@ internal sealed class PgmqQueue(
 
     public async Task SendBatchAsync<T>(
         string queue,
-        IReadOnlyCollection<T> messages,
-        QueueSendOptions? options = null,
+        IReadOnlyCollection<QueueBatchItem<T>> messages,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
@@ -27,7 +26,7 @@ internal sealed class PgmqQueue(
         {
             await client.SendAsync(
                 queue,
-                serializer.Serialize(message, options),
+                serializer.Serialize(message.Message, message.Options),
                 cancellationToken);
         }
     }

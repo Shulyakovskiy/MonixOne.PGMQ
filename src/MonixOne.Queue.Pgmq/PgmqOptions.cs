@@ -23,6 +23,7 @@ public sealed class PgmqConsumerOptions : QueueConsumerOptions
         PollingInterval = TimeSpan.Zero;
         MaxAttempts = 0;
         Concurrency = 0;
+        IdempotencyLease = TimeSpan.Zero;
         RetryDelays = [];
     }
 
@@ -39,6 +40,7 @@ public sealed class PgmqConsumerOptions : QueueConsumerOptions
         PollingInterval = PollingInterval == TimeSpan.Zero ? defaults.PollingInterval : PollingInterval;
         MaxAttempts = MaxAttempts == 0 ? defaults.MaxAttempts : MaxAttempts;
         Concurrency = Concurrency == 0 ? defaults.Concurrency : Concurrency;
+        IdempotencyLease = IdempotencyLease == TimeSpan.Zero ? defaults.IdempotencyLease : IdempotencyLease;
         if (RetryDelaysSeconds.Count > 0)
         {
             RetryDelays = RetryDelaysSeconds.Select(seconds => TimeSpan.FromSeconds(seconds)).ToArray();
@@ -56,6 +58,7 @@ internal sealed class PgmqOptionsValidator : IValidateOptions<PgmqOptions>
     {
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(options.ConnectionString)) errors.Add("Queue connection string is required.");
+        EnsureDefaultIdempotencyLease(options.Defaults);
         ValidateConsumer("Queue:Defaults", options.Defaults, errors);
         foreach (var (consumerName, consumer) in options.Consumers)
         {
@@ -75,6 +78,15 @@ internal sealed class PgmqOptionsValidator : IValidateOptions<PgmqOptions>
         if (options.PollingInterval <= TimeSpan.Zero) errors.Add($"{path}:PollingInterval must be greater than zero.");
         if (options.MaxAttempts <= 0) errors.Add($"{path}:MaxAttempts must be greater than zero.");
         if (options.Concurrency <= 0) errors.Add($"{path}:Concurrency must be greater than zero.");
+        if (options.IdempotencyLease <= options.VisibilityTimeout) errors.Add($"{path}:IdempotencyLease must be greater than VisibilityTimeout.");
         if (options.RetryDelays.Any(delay => delay <= TimeSpan.Zero)) errors.Add($"{path}:RetryDelays must contain positive values.");
+    }
+
+    private static void EnsureDefaultIdempotencyLease(QueueConsumerOptions options)
+    {
+        if (options.IdempotencyLease == TimeSpan.Zero)
+        {
+            options.IdempotencyLease = TimeSpan.FromTicks(options.VisibilityTimeout.Ticks * 2);
+        }
     }
 }
