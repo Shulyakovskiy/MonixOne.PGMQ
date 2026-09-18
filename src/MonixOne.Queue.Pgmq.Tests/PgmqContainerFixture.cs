@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -28,14 +29,15 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
 
         var initializer = new PgmqInitializer(
             DataSource,
+            Options.Create(new PgmqOptions
+            {
+                Consumers = new Dictionary<string, PgmqConsumerOptions>
+                {
+                    ["Integration"] = new() { Queue = QueueName }
+                }
+            }),
             NullLogger<PgmqInitializer>.Instance);
         await initializer.StartAsync(TestContext.Current.CancellationToken);
-
-        await using (var command = DataSource.CreateCommand("SELECT pgmq.create(@queue)"))
-        {
-            command.Parameters.AddWithValue("queue", QueueName);
-            await command.ExecuteNonQueryAsync();
-        }
 
         Client = new PgmqClient(DataSource);
     }

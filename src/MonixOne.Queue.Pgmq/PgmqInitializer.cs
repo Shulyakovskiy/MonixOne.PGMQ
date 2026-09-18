@@ -1,12 +1,14 @@
 using Dapper;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace MonixOne.Queue.Pgmq;
 
 internal sealed class PgmqInitializer(
     NpgsqlDataSource dataSource,
+    IOptions<PgmqOptions> options,
     ILogger<PgmqInitializer> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -88,6 +90,17 @@ internal sealed class PgmqInitializer(
             },
             transaction: transaction,
             cancellationToken: cancellationToken));
+
+        foreach (var queueName in options.Value.Consumers.Values
+                     .SelectMany(consumer => new[] { consumer.Queue, $"{consumer.Queue}-dlq" })
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "SELECT pgmq.create(@queueName)",
+                new { queueName },
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+        }
 
         await transaction.CommitAsync(cancellationToken);
 
