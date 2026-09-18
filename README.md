@@ -54,6 +54,9 @@ builder.Services.AddHealthChecks().AddPgmq();
 `AddPgmq(IConfiguration)` использует сначала `Queue:ConnectionString`,
 затем `ConnectionStrings:{Queue:ConnectionStringName}`.
 
+При старте пакет идемпотентно создаёт каждую очередь из `Queue:Consumers`
+и её `<queue>-dlq`. Отдельный SQL-вызов `pgmq.create()` в приложении не нужен.
+
 `AddPgmq(IConfigurationSection)` используйте, когда передаёте секцию
 `Queue` напрямую.
 

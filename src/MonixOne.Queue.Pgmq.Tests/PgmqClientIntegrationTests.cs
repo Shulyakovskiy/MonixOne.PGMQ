@@ -26,6 +26,22 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
     }
 
     [Fact]
+    public async Task StartupProvisioning_CreatesConfiguredQueueAndDeadLetterQueue()
+    {
+        await using var command = fixture.DataSource.CreateCommand("""
+            SELECT EXISTS (SELECT 1 FROM pgmq.meta WHERE queue_name = @queue),
+                   EXISTS (SELECT 1 FROM pgmq.meta WHERE queue_name = @deadLetterQueue);
+            """);
+        command.Parameters.AddWithValue("queue", fixture.Queue);
+        command.Parameters.AddWithValue("deadLetterQueue", $"{fixture.Queue}-dlq");
+        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+
+        (await reader.ReadAsync(TestContext.Current.CancellationToken)).ShouldBeTrue();
+        reader.GetBoolean(0).ShouldBeTrue();
+        reader.GetBoolean(1).ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task SendReadDelete_MessageIsAcknowledged()
     {
         const string body = """{"kind":"roundtrip"}""";
