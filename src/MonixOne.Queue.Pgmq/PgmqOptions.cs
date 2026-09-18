@@ -6,7 +6,7 @@ namespace MonixOne.Queue.Pgmq;
 public sealed class PgmqOptions
 {
     public const string SectionName = "Queue";
-    public const string SupportedExtensionVersion = "1.13.0";
+    public const string SupportedExtensionVersion = PgmqDeploymentScripts.PgmqVersion;
     public string? ConnectionString { get; set; }
     public string ConnectionStringName { get; set; } = "Queue";
     public QueueConsumerOptions Defaults { get; set; } = new();

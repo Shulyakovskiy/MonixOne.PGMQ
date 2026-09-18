@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -10,11 +9,7 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
 {
     private const string QueueName = "integration_messages";
     // A fresh PGMQ-enabled PostgreSQL instance keeps tests independent from developer databases and configuration.
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("ghcr.io/pgmq/pg17-pgmq:v1.13.0")
-        .WithDatabase("queue_tests")
-        .WithUsername("queue_tests")
-        .WithPassword("queue_tests")
-        .Build();
+    private PostgreSqlContainer? _container;
 
     public NpgsqlDataSource DataSource { get; private set; } = null!;
     internal PgmqClient Client { get; private set; } = null!;
@@ -22,12 +17,17 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
+        _container = new PostgreSqlBuilder("ghcr.io/pgmq/pg17-pgmq:v1.13.0")
+            .WithDatabase("queue_tests")
+            .WithUsername("queue_tests")
+            .WithPassword("queue_tests")
+            .Build();
         await _container.StartAsync();
+
         DataSource = NpgsqlDataSource.Create(_container.GetConnectionString());
 
         var initializer = new PgmqInitializer(
             DataSource,
-            Options.Create(new PgmqOptions { ConnectionString = _container.GetConnectionString() }),
             NullLogger<PgmqInitializer>.Instance);
         await initializer.StartAsync(TestContext.Current.CancellationToken);
 
@@ -43,7 +43,7 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
     public async ValueTask DisposeAsync()
     {
         if (DataSource is not null) await DataSource.DisposeAsync();
-        await _container.DisposeAsync();
+        if (_container is not null) await _container.DisposeAsync();
     }
 }
 

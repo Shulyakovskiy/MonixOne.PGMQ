@@ -66,12 +66,14 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         const string consumer = "notifications";
         var key = $"notification:{Guid.NewGuid():N}";
 
-        var first = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
-        var competing = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+        var claims = await Task.WhenAll(
+            store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken),
+            store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken));
 
-        first.IsAcquired.ShouldBeTrue();
-        competing.IsInProgress.ShouldBeTrue();
-        (await store.CompleteAsync(consumer, key, first.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
+        claims.Count(claim => claim.IsAcquired).ShouldBe(1);
+        claims.Count(claim => claim.IsInProgress).ShouldBe(1);
+        var acquired = claims.Single(claim => claim.IsAcquired);
+        (await store.CompleteAsync(consumer, key, acquired.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
 
         var duplicate = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
         duplicate.IsCompleted.ShouldBeTrue();

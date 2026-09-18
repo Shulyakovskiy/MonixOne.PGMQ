@@ -13,7 +13,7 @@ internal sealed class PgmqIdempotencyStore(NpgsqlDataSource dataSource)
     {
         var leaseToken = Guid.NewGuid();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        var acquired = await connection.ExecuteScalarAsync<string?>(new CommandDefinition("""
+        var acquired = await connection.ExecuteScalarAsync<Guid?>(new CommandDefinition("""
             INSERT INTO monixone_queue.idempotency_keys AS keys
                 (consumer_name, idempotency_key, status, lease_token, lease_expires_at, created_at, updated_at)
             VALUES
@@ -23,13 +23,13 @@ internal sealed class PgmqIdempotencyStore(NpgsqlDataSource dataSource)
                 lease_expires_at = EXCLUDED.lease_expires_at,
                 updated_at = EXCLUDED.updated_at
             WHERE keys.status = 'processing' AND keys.lease_expires_at <= now()
-            RETURNING lease_token::text;
+            RETURNING lease_token;
             """,
             new { consumerName, idempotencyKey, leaseToken, lease },
             cancellationToken: cancellationToken));
         if (acquired is not null)
         {
-            return IdempotencyClaim.Acquired(leaseToken);
+            return IdempotencyClaim.Acquired(acquired.Value);
         }
 
         var existing = await connection.QuerySingleAsync<IdempotencyState>(new CommandDefinition("""
@@ -78,15 +78,15 @@ internal sealed class PgmqIdempotencyStore(NpgsqlDataSource dataSource)
             new { consumerName, idempotencyKey, leaseToken }));
     }
 
-    private sealed record IdempotencyState(string Status, DateTimeOffset? LeaseExpiresAt);
+    private sealed record IdempotencyState(string Status, DateTime? LeaseExpiresAt);
 }
 
-internal readonly record struct IdempotencyClaim(Guid? LeaseToken, bool IsCompleted, DateTimeOffset? LeaseExpiresAt)
+internal readonly record struct IdempotencyClaim(Guid? LeaseToken, bool IsCompleted, DateTime? LeaseExpiresAt)
 {
     public bool IsAcquired => LeaseToken is not null;
     public bool IsInProgress => !IsAcquired && !IsCompleted;
 
     public static IdempotencyClaim Acquired(Guid leaseToken) => new(leaseToken, false, null);
     public static IdempotencyClaim Completed => new(null, true, null);
-    public static IdempotencyClaim InProgress(DateTimeOffset? leaseExpiresAt) => new(null, false, leaseExpiresAt);
+    public static IdempotencyClaim InProgress(DateTime? leaseExpiresAt) => new(null, false, leaseExpiresAt);
 }

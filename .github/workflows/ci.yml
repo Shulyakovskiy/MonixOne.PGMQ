@@ -21,6 +21,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Verify Docker for Testcontainers
+        run: |
+          docker version
+          docker info
+          docker pull ghcr.io/pgmq/pg17-pgmq:v1.13.0
+
       - name: Restore
         run: dotnet restore MonixOne.PGMQ.sln --disable-parallel
 
@@ -29,7 +35,7 @@ jobs:
           dotnet build MonixOne.PGMQ.sln --configuration Release --no-restore
           --disable-build-servers -m:1 -p:GeneratePackageOnBuild=false
 
-      - name: Test
+      - name: Test, including PostgreSQL Testcontainers integration
         run: >-
           dotnet test --project
           src/MonixOne.Queue.Pgmq.Tests/MonixOne.Queue.Pgmq.Tests.csproj

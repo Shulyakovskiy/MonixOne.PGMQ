@@ -1,19 +1,17 @@
 using Dapper;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace MonixOne.Queue.Pgmq;
 
 internal sealed class PgmqInitializer(
     NpgsqlDataSource dataSource,
-    IOptions<PgmqOptions> options,
     ILogger<PgmqInitializer> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _ = options.Value;
+        PgmqDeploymentScripts.ValidateSourceArchive();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition(
@@ -93,7 +91,7 @@ internal sealed class PgmqInitializer(
 
         await transaction.CommitAsync(cancellationToken);
 
-        logger.LogInformation("PGMQ {PgmqVersion} was provisioned from embedded SQL and is ready.", targetVersion);
+        logger.LogInformation("PGMQ {PgmqVersion} is ready.", targetVersion);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

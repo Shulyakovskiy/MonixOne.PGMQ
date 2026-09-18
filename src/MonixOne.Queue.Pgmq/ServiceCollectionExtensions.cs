@@ -64,9 +64,9 @@ public static class ServiceCollectionExtensions
     {
         services.AddOptions<PgmqOptions>()
             .Configure(configure)
-            .Services
-            .AddSingleton<IValidateOptions<PgmqOptions>, PgmqOptionsValidator>();
-        services.AddOptions<PgmqOptions>().ValidateOnStart();
+            .ValidateOnStart();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<PgmqOptions>, PgmqOptionsValidator>());
         services.TryAddSingleton<NpgsqlDataSource>(serviceProvider =>
         {
             // One data source owns Npgsql's host-wide connection pool; queue operations lease pooled connections.
