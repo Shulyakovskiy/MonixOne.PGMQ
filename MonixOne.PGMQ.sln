@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{EFF668E9-7B00-45ED-B35B-E9C0B2564167}"
+	ProjectSection(SolutionItems) = preProject
+		Directory.Packages.props = Directory.Packages.props
+		.gitignore = .gitignore
+		.dockerignore = .dockerignore
+		.editorconfig = .editorconfig
+		.gitattributes = .gitattributes
+		Directory.Build.props = Directory.Build.props
+		global.json = global.json
+		README.md = README.md
+		assets\nuget-icon.png = assets\nuget-icon.png
+		.github\workflows\ci.yml = .github\workflows\ci.yml
+		.github\workflows\publish.yml = .github\workflows\publish.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{436C0DB0-644F-4A65-ACEA-CBF73F55A8AE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonixOne.Queue.Pgmq", "src\MonixOne.Queue.Pgmq\MonixOne.Queue.Pgmq.csproj", "{CE059DE9-E55F-4D98-8D71-C73F6DB4D4F2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonixOne.Queue.Pgmq.Tests", "src\MonixOne.Queue.Pgmq.Tests\MonixOne.Queue.Pgmq.Tests.csproj", "{0ED48CE4-A0BB-4A3D-AE98-4E0F855173D3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CE059DE9-E55F-4D98-8D71-C73F6DB4D4F2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CE059DE9-E55F-4D98-8D71-C73F6DB4D4F2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CE059DE9-E55F-4D98-8D71-C73F6DB4D4F2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CE059DE9-E55F-4D98-8D71-C73F6DB4D4F2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0ED48CE4-A0BB-4A3D-AE98-4E0F855173D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0ED48CE4-A0BB-4A3D-AE98-4E0F855173D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0ED48CE4-A0BB-4A3D-AE98-4E0F855173D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0ED48CE4-A0BB-4A3D-AE98-4E0F855173D3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CE059DE9-E55F-4D98-8D71-C73F6DB4D4F2} = {436C0DB0-644F-4A65-ACEA-CBF73F55A8AE}
+		{0ED48CE4-A0BB-4A3D-AE98-4E0F855173D3} = {436C0DB0-644F-4A65-ACEA-CBF73F55A8AE}
+	EndGlobalSection
+EndGlobal

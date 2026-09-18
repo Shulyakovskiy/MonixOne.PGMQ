@@ -1,0 +1,64 @@
+name: Publish packages
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Test and publish
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore MonixOne.PGMQ.sln --disable-parallel
+
+      - name: Build
+        run: >-
+          dotnet build MonixOne.PGMQ.sln --configuration Release --no-restore
+          --disable-build-servers -m:1 -p:GeneratePackageOnBuild=false
+
+      - name: Test
+        run: >-
+          dotnet test --project
+          src/MonixOne.Queue.Pgmq.Tests/MonixOne.Queue.Pgmq.Tests.csproj
+          --configuration Release --no-build --no-restore --
+          --minimum-expected-tests 8 --no-ansi --progress off
+
+      - name: Pack
+        run: >-
+          dotnet pack src/MonixOne.Queue.Pgmq/MonixOne.Queue.Pgmq.csproj
+          --configuration Release --no-build --output artifacts/nuget
+          -p:GeneratePackageOnBuild=false
+
+      - name: NuGet login
+        id: nuget_login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push packages
+        env:
+          NUGET_TEMPORARY_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push "artifacts/nuget/*.nupkg"
+          --api-key "$NUGET_TEMPORARY_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

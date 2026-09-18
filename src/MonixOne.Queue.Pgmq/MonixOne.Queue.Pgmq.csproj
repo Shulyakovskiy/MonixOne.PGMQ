@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild><PackageId>MonixOne.Queue.Pgmq</PackageId><PackageReadmeFile>README.md</PackageReadmeFile>
+    <Title>MonixOne.Queue.Pgmq</Title>
+    <Description>PostgreSQL-backed PGMQ queue for .NET applications with at-least-once delivery, retries and dead-letter queues.</Description>
+    <PackageTags>dotnet;postgresql;pgmq;queue;messaging;outbox</PackageTags>
+    <PackageIcon>nuget-icon.png</PackageIcon>
+    <Authors>Shulyakovsky.E</Authors>
+    <Copyright>MonixOne</Copyright>
+    <Version>1.0.0</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Shulyakovskiy/MonixOne.PGMQ</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shulyakovskiy/MonixOne.PGMQ</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+  <ItemGroup><None Include="../../README.md" Pack="true" PackagePath="\" Link="README.md" /></ItemGroup>
+  <ItemGroup>
+    <Content Include="../../infrastructure/pgmq/**/*"
+             Exclude="../../infrastructure/pgmq/**/.DS_Store"
+             Pack="true"
+             PackagePath="contentFiles/any/any/pgmq"
+             PackageCopyToOutput="true"
+             Link="pgmq/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../assets/nuget-icon.png" Link="nuget-icon.png" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

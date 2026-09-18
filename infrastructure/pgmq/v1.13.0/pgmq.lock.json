@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/pgmq/pgmq.git",
+  "tag": "v1.13.0",
+  "commit": "32c075b",
+  "extensionVersion": "1.13.0",
+  "sourceArchive": "pgmq-v1.13.0.tar.gz",
+  "sourceArchiveUrl": "https://github.com/pgmq/pgmq/archive/refs/tags/v1.13.0.tar.gz",
+  "sourceArchiveSha256": "c980705ffa2a731b69f3d26be5650d6fbcc76b2b9add67b138da4ee74a4579a5",
+  "sourceLicense": "PostgreSQL License",
+  "upgradeProcedure": "Create a new versioned directory, pin its upstream tag and full commit SHA, add its upgrade SQL, then update PgmqOptions.SupportedExtensionVersion after integration verification."
+}
