@@ -13,19 +13,60 @@ internal sealed class PgmqInitializer(
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        // Validate before database access, but leave extension installation and schema ownership to deployment scripts.
         _ = options.Value;
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        var installedVersion = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-            "SELECT extversion FROM pg_extension WHERE extname = 'pgmq'",
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(hashtext('monixone.queue.pgmq.deployment'))",
+            transaction: transaction,
             cancellationToken: cancellationToken));
 
-        var status = installedVersion switch
+        foreach (var script in PgmqDeploymentScripts.OrderedFiles)
         {
-            null => "missing",
-            var version when version == PgmqOptions.SupportedExtensionVersion => "installed",
-            _ => "version_mismatch"
-        };
+            await connection.ExecuteAsync(new CommandDefinition(
+                PgmqDeploymentScripts.ReadSql(script),
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+        }
+
+        var installedVersion = await connection.ExecuteScalarAsync<string?>(new CommandDefinition("""
+            SELECT installed_version
+            FROM monixone_queue.infrastructure_metadata
+            WHERE component = 'pgmq'
+            FOR UPDATE
+            """,
+            transaction: transaction,
+            cancellationToken: cancellationToken));
+
+        if (installedVersion is null)
+        {
+            var pgmqSchemaExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+                "SELECT to_regnamespace('pgmq') IS NOT NULL",
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            if (pgmqSchemaExists)
+            {
+                throw new InvalidOperationException("The pgmq schema exists but has no package migration record. Add a migration record before enabling package-managed PGMQ SQL upgrades.");
+            }
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                PgmqDeploymentScripts.ReadInitialPgmqSql(),
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+        }
+        else
+        {
+            foreach (var migration in PgmqDeploymentScripts.ReadUpgradeSql(installedVersion))
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    migration,
+                    transaction: transaction,
+                    cancellationToken: cancellationToken));
+            }
+        }
+
+        const string status = "installed";
+        var targetVersion = PgmqDeploymentScripts.PgmqVersion;
 
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO monixone_queue.infrastructure_metadata
@@ -42,19 +83,17 @@ internal sealed class PgmqInitializer(
             new
             {
                 status,
-                expectedVersion = PgmqOptions.SupportedExtensionVersion,
-                installedVersion,
-                sourceUrl = "https://github.com/pgmq/pgmq.git",
-                sourceRevision = "v1.13.0"
+                expectedVersion = targetVersion,
+                installedVersion = targetVersion,
+                sourceUrl = "package://MonixOne.Queue.Pgmq",
+                sourceRevision = PgmqDeploymentScripts.Version
             },
+            transaction: transaction,
             cancellationToken: cancellationToken));
 
-        if (status != "installed")
-        {
-            throw new InvalidOperationException($"PGMQ extension must be installed at version {PgmqOptions.SupportedExtensionVersion}; detected '{installedVersion ?? "not installed"}'. Apply infrastructure/pgmq/v1.13.0/001-create-metadata.sql and 002-install-pgmq.sql before starting the application.");
-        }
+        await transaction.CommitAsync(cancellationToken);
 
-        logger.LogInformation("PGMQ {PgmqVersion} is installed and connected.", installedVersion);
+        logger.LogInformation("PGMQ {PgmqVersion} was provisioned from embedded SQL and is ready.", targetVersion);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

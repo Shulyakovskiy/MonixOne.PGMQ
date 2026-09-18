@@ -8,19 +8,21 @@ namespace MonixOne.Queue.Pgmq.Tests;
 public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
 {
     [Fact]
-    public async Task DeploymentScripts_CreatePinnedExtensionAndMetadata()
+    public async Task StartupProvisioning_AppliesBundledPgmqSqlAndMetadata()
     {
         await using var command = fixture.DataSource.CreateCommand("""
-            SELECT extversion,
+            SELECT installed_version,
+                   EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgmq'),
                    EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'monixone_queue' AND table_name = 'infrastructure_metadata')
-            FROM pg_extension
-            WHERE extname = 'pgmq';
+            FROM monixone_queue.infrastructure_metadata
+            WHERE component = 'pgmq';
             """);
         await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
 
         (await reader.ReadAsync(TestContext.Current.CancellationToken)).ShouldBeTrue();
         reader.GetString(0).ShouldBe("1.13.0");
         reader.GetBoolean(1).ShouldBeTrue();
+        reader.GetBoolean(2).ShouldBeTrue();
     }
 
     [Fact]

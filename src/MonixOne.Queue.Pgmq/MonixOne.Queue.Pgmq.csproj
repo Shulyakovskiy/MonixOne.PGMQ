@@ -8,7 +8,7 @@
     <PackageIcon>nuget-icon.png</PackageIcon>
     <Authors>Shulyakovsky.E</Authors>
     <Copyright>MonixOne</Copyright>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/Shulyakovskiy/MonixOne.PGMQ</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Shulyakovskiy/MonixOne.PGMQ</RepositoryUrl>
@@ -36,6 +36,12 @@
              PackagePath="contentFiles/any/any/pgmq"
              PackageCopyToOutput="true"
              Link="pgmq/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../infrastructure/pgmq/v1.13.0/001-create-metadata.sql"
+                      LogicalName="MonixOne.Queue.Pgmq.PgmqScripts.v1.13.0.001-create-metadata.sql" />
+    <EmbeddedResource Include="../../infrastructure/pgmq/v1.13.0/pgmq-v1.13.0.tar.gz"
+                      LogicalName="MonixOne.Queue.Pgmq.PgmqArchive.v1.13.0.tar.gz" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../assets/nuget-icon.png" Link="nuget-icon.png" Pack="true" PackagePath="/" />

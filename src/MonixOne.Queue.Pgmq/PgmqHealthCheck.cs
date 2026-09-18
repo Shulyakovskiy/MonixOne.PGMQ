@@ -11,12 +11,15 @@ internal sealed class PgmqHealthCheck(NpgsqlDataSource dataSource) : IHealthChec
         try
         {
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-            var version = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-                "SELECT extversion FROM pg_extension WHERE extname = 'pgmq'",
+            var version = await connection.ExecuteScalarAsync<string?>(new CommandDefinition("""
+                SELECT installed_version
+                FROM monixone_queue.infrastructure_metadata
+                WHERE component = 'pgmq'
+                """,
                 cancellationToken: cancellationToken));
-            return version == PgmqOptions.SupportedExtensionVersion
+            return version == PgmqDeploymentScripts.PgmqVersion
                 ? HealthCheckResult.Healthy($"PGMQ {version} is available.")
-                : HealthCheckResult.Unhealthy($"PGMQ {PgmqOptions.SupportedExtensionVersion} is required; detected '{version ?? "not installed"}'.");
+                : HealthCheckResult.Unhealthy($"PGMQ {PgmqDeploymentScripts.PgmqVersion} is required; detected '{version ?? "not installed"}'.");
         }
         catch (Exception exception)
         {

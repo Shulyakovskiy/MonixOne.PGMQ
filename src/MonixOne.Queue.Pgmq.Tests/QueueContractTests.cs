@@ -24,7 +24,18 @@ public sealed class QueueContractTests
         PgmqDeploymentScripts.SourceArchive.ShouldBe("pgmq-v1.13.0.tar.gz");
         PgmqDeploymentScripts.SourceArchiveSha256.ShouldBe(
             "c980705ffa2a731b69f3d26be5650d6fbcc76b2b9add67b138da4ee74a4579a5");
-        PgmqDeploymentScripts.OrderedFiles.ShouldBe(["001-create-metadata.sql", "002-install-pgmq.sql"]);
+        PgmqDeploymentScripts.PgmqVersion.ShouldBe("1.13.0");
+        PgmqDeploymentScripts.OrderedFiles.ShouldBe(["001-create-metadata.sql"]);
+    }
+
+    [Fact]
+    public void DeploymentScripts_SelectUpstreamUpgradeChainFromAppliedVersion()
+    {
+        var migrations = PgmqDeploymentScripts.ReadUpgradeSql("1.12.0");
+
+        migrations.Count.ShouldBe(1);
+        migrations.Single().ShouldContain("last_read_at");
+        PgmqDeploymentScripts.ReadUpgradeSql("1.13.0").ShouldBeEmpty();
     }
 
     [QueueMessage("notification.requested", Version = 2)]

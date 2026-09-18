@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -23,13 +25,11 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
         await _container.StartAsync();
         DataSource = NpgsqlDataSource.Create(_container.GetConnectionString());
 
-        foreach (var script in PgmqDeploymentScripts.OrderedFiles)
-        {
-            // Exercise the exact package artifacts in the same order used by the database deployment job.
-            var path = Path.Combine(AppContext.BaseDirectory, PgmqDeploymentScripts.RelativeDirectory, script);
-            await using var command = DataSource.CreateCommand(await File.ReadAllTextAsync(path));
-            await command.ExecuteNonQueryAsync();
-        }
+        var initializer = new PgmqInitializer(
+            DataSource,
+            Options.Create(new PgmqOptions { ConnectionString = _container.GetConnectionString() }),
+            NullLogger<PgmqInitializer>.Instance);
+        await initializer.StartAsync(TestContext.Current.CancellationToken);
 
         await using (var command = DataSource.CreateCommand("SELECT pgmq.create(@queue)"))
         {

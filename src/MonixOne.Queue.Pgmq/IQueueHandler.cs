@@ -1,4 +1,4 @@
-namespace MonixOne.Queue;
+namespace MonixOne.Queue.Pgmq;
 
 public interface IQueueHandler<in T>
 {
