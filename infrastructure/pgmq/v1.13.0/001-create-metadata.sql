@@ -1,4 +1,4 @@
--- Database deployment only. Application runtime has no CREATE/ALTER/DROP privileges.
+-- Executed by the package at application startup under a transaction-scoped advisory lock.
 CREATE SCHEMA IF NOT EXISTS monixone_queue;
 
 CREATE TABLE IF NOT EXISTS monixone_queue.infrastructure_metadata (

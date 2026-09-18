@@ -42,7 +42,7 @@ jobs:
           dotnet test --project
           src/MonixOne.Queue.Pgmq.Tests/MonixOne.Queue.Pgmq.Tests.csproj
           --configuration Release --no-build --no-restore --
-          --minimum-expected-tests 8 --no-ansi --progress off
+          --minimum-expected-tests 9 --no-ansi --progress off
 
       - name: Pack
         run: >-
