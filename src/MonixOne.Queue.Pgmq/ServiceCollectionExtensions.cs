@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHostedService>(serviceProvider => new PgmqWorker<TMessage>(
             consumerName,
             serviceProvider.GetRequiredService<PgmqClient>(),
+            serviceProvider.GetRequiredService<PgmqIdempotencyStore>(),
             serviceProvider.GetRequiredService<QueueJsonSerializer>(),
             serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             serviceProvider.GetRequiredService<IOptions<PgmqOptions>>(),
@@ -73,6 +74,7 @@ public static class ServiceCollectionExtensions
             return NpgsqlDataSource.Create(connectionString);
         });
         services.TryAddSingleton<PgmqClient>();
+        services.TryAddSingleton<PgmqIdempotencyStore>();
         services.TryAddSingleton<QueueJsonSerializer>();
         services.TryAddSingleton<IQueue, PgmqQueue>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PgmqInitializer>());

@@ -2,6 +2,7 @@ namespace MonixOne.Queue.Pgmq;
 
 internal sealed record QueueEnvelope<T>(
     Guid Id,
+    string IdempotencyKey,
     string Type,
     int Version,
     string? Source,
