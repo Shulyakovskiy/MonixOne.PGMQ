@@ -18,6 +18,12 @@ internal sealed class PgmqWorker<T>(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var consumer = GetConsumer();
+        logger.LogInformation(
+            "PGMQ worker started. Worker {Worker}, Queue {Queue}, BatchSize {BatchSize}, Concurrency {Concurrency}.",
+            consumerName,
+            consumer.Queue,
+            consumer.BatchSize,
+            consumer.Concurrency);
         while (!stoppingToken.IsCancellationRequested)
         {
             IReadOnlyList<PgmqMessage> messages;
@@ -43,6 +49,12 @@ internal sealed class PgmqWorker<T>(
                 await Task.Delay(consumer.PollingInterval, stoppingToken);
                 continue;
             }
+
+            logger.LogDebug(
+                "PGMQ messages received. Worker {Worker}, Queue {Queue}, Count {Count}.",
+                consumerName,
+                consumer.Queue,
+                messages.Count);
 
             await Parallel.ForEachAsync(messages, new ParallelOptions
             {
@@ -88,7 +100,7 @@ internal sealed class PgmqWorker<T>(
                 var retryDelay = claim.LeaseExpiresAt is { } leaseExpiresAt
                     ? leaseExpiresAt - DateTime.UtcNow
                     : consumer.PollingInterval;
-                await TryQueueOperationAsync(
+                if (await TryQueueOperationAsync(
                     "visibility update for a concurrent delivery",
                     () => client.SetVisibilityAsync(
                         consumer.Queue,
@@ -97,7 +109,16 @@ internal sealed class PgmqWorker<T>(
                         cancellationToken),
                     consumer.Queue,
                     message.Id,
-                    cancellationToken);
+                    cancellationToken))
+                {
+                    logger.LogDebug(
+                        "PGMQ concurrent delivery deferred. Worker {Worker}, Queue {Queue}, IdempotencyKey {IdempotencyKey}, MessageId {MessageId}, RetryDelayMs {RetryDelayMs}.",
+                        consumerName,
+                        consumer.Queue,
+                        envelope.IdempotencyKey,
+                        message.Id,
+                        retryDelay.TotalMilliseconds);
+                }
                 return;
             }
 
@@ -160,7 +181,7 @@ internal sealed class PgmqWorker<T>(
                 DateTimeOffset.UtcNow,
                 exception.GetType().FullName ?? exception.GetType().Name,
                 exception.Message);
-            await TryQueueOperationAsync(
+            if (await TryQueueOperationAsync(
                 "dead-letter persistence",
                 () => client.MoveToDeadLetterAsync(
                     consumer.Queue,
@@ -170,18 +191,34 @@ internal sealed class PgmqWorker<T>(
                     cancellationToken),
                 consumer.Queue,
                 message.Id,
-                cancellationToken);
+                cancellationToken))
+            {
+                logger.LogWarning(
+                    "PGMQ message moved to DLQ. Queue {Queue}, MessageId {MessageId}, DeliveryCount {DeliveryCount}, MaxAttempts {MaxAttempts}.",
+                    consumer.Queue,
+                    message.Id,
+                    message.ReadCount,
+                    consumer.MaxAttempts);
+            }
             return;
         }
 
         var delayIndex = Math.Min(message.ReadCount - 1, consumer.RetryDelays.Count - 1);
         var retryDelay = delayIndex >= 0 ? consumer.RetryDelays[delayIndex] : consumer.PollingInterval;
-        await TryQueueOperationAsync(
+        if (await TryQueueOperationAsync(
             "retry scheduling",
             () => client.SetVisibilityAsync(consumer.Queue, message.Id, retryDelay, cancellationToken),
             consumer.Queue,
             message.Id,
-            cancellationToken);
+            cancellationToken))
+        {
+            logger.LogWarning(
+                "PGMQ message retry scheduled. Queue {Queue}, MessageId {MessageId}, DeliveryCount {DeliveryCount}, RetryDelayMs {RetryDelayMs}.",
+                consumer.Queue,
+                message.Id,
+                message.ReadCount,
+                retryDelay.TotalMilliseconds);
+        }
     }
 
     private async Task TryReleaseLeaseAsync(QueueEnvelope<T>? envelope, Guid? leaseToken)

@@ -14,6 +14,14 @@ internal sealed class PgmqInitializer(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         PgmqDeploymentScripts.ValidateSourceArchive();
+        var queueNames = options.Value.Consumers.Values
+            .SelectMany(consumer => new[] { consumer.Queue, $"{consumer.Queue}-dlq" })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        logger.LogInformation(
+            "PGMQ provisioning started. TargetVersion {TargetVersion}, ConsumerCount {ConsumerCount}.",
+            PgmqDeploymentScripts.PgmqVersion,
+            options.Value.Consumers.Count);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition(
@@ -49,6 +57,7 @@ internal sealed class PgmqInitializer(
                 throw new InvalidOperationException("The pgmq schema exists but has no package migration record. Add a migration record before enabling package-managed PGMQ SQL upgrades.");
             }
 
+            logger.LogInformation("PGMQ initial SQL provisioning started. TargetVersion {TargetVersion}.", PgmqDeploymentScripts.PgmqVersion);
             await connection.ExecuteAsync(new CommandDefinition(
                 PgmqDeploymentScripts.ReadInitialPgmqSql(),
                 transaction: transaction,
@@ -56,6 +65,10 @@ internal sealed class PgmqInitializer(
         }
         else
         {
+            logger.LogInformation(
+                "PGMQ SQL upgrade started. InstalledVersion {InstalledVersion}, TargetVersion {TargetVersion}.",
+                installedVersion,
+                PgmqDeploymentScripts.PgmqVersion);
             foreach (var migration in PgmqDeploymentScripts.ReadUpgradeSql(installedVersion))
             {
                 await connection.ExecuteAsync(new CommandDefinition(
@@ -91,9 +104,7 @@ internal sealed class PgmqInitializer(
             transaction: transaction,
             cancellationToken: cancellationToken));
 
-        foreach (var queueName in options.Value.Consumers.Values
-                     .SelectMany(consumer => new[] { consumer.Queue, $"{consumer.Queue}-dlq" })
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var queueName in queueNames)
         {
             await connection.ExecuteAsync(new CommandDefinition(
                 "SELECT pgmq.create(@queueName)",
@@ -104,7 +115,7 @@ internal sealed class PgmqInitializer(
 
         await transaction.CommitAsync(cancellationToken);
 
-        logger.LogInformation("PGMQ {PgmqVersion} is ready.", targetVersion);
+        logger.LogInformation("PGMQ {PgmqVersion} is ready. QueueCount {QueueCount}.", targetVersion, queueNames.Length);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
