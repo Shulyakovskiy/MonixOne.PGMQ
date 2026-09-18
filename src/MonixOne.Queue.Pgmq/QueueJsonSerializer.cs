@@ -27,8 +27,8 @@ internal sealed class QueueJsonSerializer
             sendOptions.IdempotencyKey,
             attribute?.Type ?? typeof(T).FullName ?? typeof(T).Name,
             attribute?.Version ?? 1,
-            sendOptions?.Source,
-            sendOptions?.CorrelationId,
+            sendOptions.Source,
+            sendOptions.CorrelationId,
             // Trace identity is taken from the active W3C Activity rather than a caller-controlled option.
             // CorrelationId remains application metadata and is intentionally stored separately.
             Activity.Current?.TraceId.ToString(),

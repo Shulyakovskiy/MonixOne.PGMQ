@@ -1,16 +1,16 @@
 using System.Formats.Tar;
 using System.IO.Compression;
-using System.Reflection;
+using System.Security.Cryptography;
 
 namespace MonixOne.Queue.Pgmq;
 
 /// <summary>Versioned SQL deployment contract shipped with the NuGet package.</summary>
 public static class PgmqDeploymentScripts
 {
-    public const string Version = "v1.13.0";
     public const string PgmqVersion = "1.13.0";
-    public const string RelativeDirectory = "pgmq/v1.13.0";
-    public const string SourceArchive = "pgmq-v1.13.0.tar.gz";
+    public const string Version = "v" + PgmqVersion;
+    public const string RelativeDirectory = "pgmq/" + Version;
+    public const string SourceArchive = "pgmq-" + Version + ".tar.gz";
     public const string SourceArchiveSha256 = "c980705ffa2a731b69f3d26be5650d6fbcc76b2b9add67b138da4ee74a4579a5";
     public static IReadOnlyList<string> OrderedFiles { get; } =
     [
@@ -31,6 +31,8 @@ public static class PgmqDeploymentScripts
     }
 
     internal static string ReadInitialPgmqSql() => GetPgmqSqlFile("pgmq.sql");
+
+    internal static void ValidateSourceArchive() => _ = _pgmqSqlFiles.Value;
 
     internal static IReadOnlyList<string> ReadUpgradeSql(string installedVersion)
     {
@@ -72,13 +74,25 @@ public static class PgmqDeploymentScripts
     private static IReadOnlyDictionary<string, string> ReadPgmqSqlFiles()
     {
         using var archive = typeof(PgmqDeploymentScripts).Assembly.GetManifestResourceStream(
-            "MonixOne.Queue.Pgmq.PgmqArchive.v1.13.0.tar.gz")
+            $"MonixOne.Queue.Pgmq.PgmqArchive.{Version}.tar.gz")
             ?? throw new InvalidOperationException("Embedded PGMQ source archive was not found.");
-        using var gzip = new GZipStream(archive, CompressionMode.Decompress);
+        using var verifiedArchive = new MemoryStream();
+        archive.CopyTo(verifiedArchive);
+        verifiedArchive.Position = 0;
+
+        var actualSha256 = Convert.ToHexString(SHA256.HashData(verifiedArchive));
+        if (!actualSha256.Equals(SourceArchiveSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Embedded PGMQ source archive SHA-256 mismatch. Expected '{SourceArchiveSha256}', actual '{actualSha256.ToLowerInvariant()}'.");
+        }
+
+        verifiedArchive.Position = 0;
+        using var gzip = new GZipStream(verifiedArchive, CompressionMode.Decompress);
         using var tar = new TarReader(gzip);
 
         var files = new Dictionary<string, string>(StringComparer.Ordinal);
-        const string sqlPrefix = "pgmq-1.13.0/pgmq-extension/sql/";
+        var sqlPrefix = $"pgmq-{PgmqVersion}/pgmq-extension/sql/";
 
         TarEntry? entry;
         while ((entry = tar.GetNextEntry()) is not null)

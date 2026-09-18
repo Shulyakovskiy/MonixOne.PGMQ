@@ -71,21 +71,38 @@ internal sealed class PgmqWorker<T>(
             if (claim.IsCompleted)
             {
                 // A previous delivery completed this logical message. Acknowledge only the duplicate PGMQ delivery.
-                await client.DeleteAsync(consumer.Queue, message.Id, cancellationToken);
-                logger.LogDebug("PGMQ duplicate skipped. Queue {Queue}, IdempotencyKey {IdempotencyKey}, MessageId {MessageId}.", consumer.Queue, envelope.IdempotencyKey, message.Id);
+                if (await TryQueueOperationAsync(
+                        "acknowledgement of a completed duplicate",
+                        () => client.DeleteAsync(consumer.Queue, message.Id, cancellationToken),
+                        consumer.Queue,
+                        message.Id,
+                        cancellationToken))
+                {
+                    logger.LogDebug("PGMQ duplicate skipped. Queue {Queue}, IdempotencyKey {IdempotencyKey}, MessageId {MessageId}.", consumer.Queue, envelope.IdempotencyKey, message.Id);
+                }
                 return;
             }
 
             if (claim.IsInProgress)
             {
                 var retryDelay = claim.LeaseExpiresAt is { } leaseExpiresAt
-                    ? leaseExpiresAt - DateTimeOffset.UtcNow
+                    ? leaseExpiresAt - DateTime.UtcNow
                     : consumer.PollingInterval;
-                await client.SetVisibilityAsync(consumer.Queue, message.Id, retryDelay > TimeSpan.Zero ? retryDelay : consumer.PollingInterval, cancellationToken);
+                await TryQueueOperationAsync(
+                    "visibility update for a concurrent delivery",
+                    () => client.SetVisibilityAsync(
+                        consumer.Queue,
+                        message.Id,
+                        retryDelay > TimeSpan.Zero ? retryDelay : consumer.PollingInterval,
+                        cancellationToken),
+                    consumer.Queue,
+                    message.Id,
+                    cancellationToken);
                 return;
             }
 
-            leaseToken = claim.LeaseToken!.Value;
+            leaseToken = claim.LeaseToken
+                ?? throw new QueueException($"The idempotency claim for key '{envelope.IdempotencyKey}' has no lease token.");
             // A scope per message isolates DbContext and other scoped dependencies across concurrent deliveries.
             await using var scope = scopeFactory.CreateAsyncScope();
             var handler = scope.ServiceProvider.GetRequiredService<IQueueHandler<T>>();
@@ -95,44 +112,27 @@ internal sealed class PgmqWorker<T>(
                 throw new QueueException($"The idempotency lease was lost for key '{envelope.IdempotencyKey}'.");
             }
 
-            // Completion is durable before acknowledgement. A redelivery observes the completed key and is only acknowledged.
-            await client.DeleteAsync(consumer.Queue, message.Id, cancellationToken);
-            logger.LogDebug("PGMQ message processed. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}, DeliveryCount {DeliveryCount}, DurationMs {DurationMs}.", consumer.Queue, envelope.Id, envelope.Type, message.ReadCount, stopwatch.ElapsedMilliseconds);
+            // Completion is durable. From this point an acknowledgement failure must not enter retry or DLQ handling.
+            leaseToken = null;
+            if (await TryQueueOperationAsync(
+                    "acknowledgement of a completed message",
+                    () => client.DeleteAsync(consumer.Queue, message.Id, cancellationToken),
+                    consumer.Queue,
+                    message.Id,
+                    cancellationToken))
+            {
+                logger.LogDebug("PGMQ message processed. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}, DeliveryCount {DeliveryCount}, DurationMs {DurationMs}.", consumer.Queue, envelope.Id, envelope.Type, message.ReadCount, stopwatch.ElapsedMilliseconds);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (envelope is not null && leaseToken is { } token)
-            {
-                await idempotencyStore.ReleaseAsync(consumerName, envelope.IdempotencyKey, token);
-            }
+            await TryReleaseLeaseAsync(envelope, leaseToken);
             throw;
         }
         catch (Exception exception)
         {
-            if (envelope is not null && leaseToken is { } token)
-            {
-                await idempotencyStore.ReleaseAsync(consumerName, envelope.IdempotencyKey, token);
-            }
-            // pgmq.read has already made this message invisible; a failed handler must not acknowledge it.
-            logger.LogError(exception, "PGMQ message processing failed. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}, DeliveryCount {DeliveryCount}, DurationMs {DurationMs}.", consumer.Queue, envelope?.Id, envelope?.Type, message.ReadCount, stopwatch.ElapsedMilliseconds);
-            if (message.ReadCount >= consumer.MaxAttempts)
-            {
-                var deadLetter = new DeadLetterMessage(message.Body, consumer.Queue, message.Id, message.ReadCount, DateTimeOffset.UtcNow, exception.GetType().FullName ?? exception.GetType().Name, exception.Message);
-                await PersistFailureAsync(
-                    () => client.MoveToDeadLetterAsync(consumer.Queue, message.Id, $"{consumer.Queue}-dlq", serializer.Serialize(deadLetter), cancellationToken),
-                    consumer,
-                    message,
-                    cancellationToken);
-                return;
-            }
-
-            var delayIndex = Math.Min(message.ReadCount - 1, consumer.RetryDelays.Count - 1);
-            var retryDelay = delayIndex >= 0 ? consumer.RetryDelays[delayIndex] : consumer.PollingInterval;
-            await PersistFailureAsync(
-                () => client.SetVisibilityAsync(consumer.Queue, message.Id, retryDelay, cancellationToken),
-                consumer,
-                message,
-                cancellationToken);
+            await TryReleaseLeaseAsync(envelope, leaseToken);
+            await HandleFailureAsync(consumer, message, envelope, exception, stopwatch.ElapsedMilliseconds, cancellationToken);
         }
     }
 
@@ -140,15 +140,76 @@ internal sealed class PgmqWorker<T>(
         ? consumer
         : throw new InvalidOperationException($"Queue consumer configuration '{consumerName}' was not found.");
 
-    private async Task PersistFailureAsync(
-        Func<Task> operation,
+    private async Task HandleFailureAsync(
         PgmqConsumerOptions consumer,
         PgmqMessage message,
+        QueueEnvelope<T>? envelope,
+        Exception exception,
+        long durationMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        // pgmq.read has already made this message invisible; a failed handler must not acknowledge it.
+        logger.LogError(exception, "PGMQ message processing failed. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}, DeliveryCount {DeliveryCount}, DurationMs {DurationMs}.", consumer.Queue, envelope?.Id, envelope?.Type, message.ReadCount, durationMilliseconds);
+        if (message.ReadCount >= consumer.MaxAttempts)
+        {
+            var deadLetter = new DeadLetterMessage(
+                message.Body,
+                consumer.Queue,
+                message.Id,
+                message.ReadCount,
+                DateTimeOffset.UtcNow,
+                exception.GetType().FullName ?? exception.GetType().Name,
+                exception.Message);
+            await TryQueueOperationAsync(
+                "dead-letter persistence",
+                () => client.MoveToDeadLetterAsync(
+                    consumer.Queue,
+                    message.Id,
+                    $"{consumer.Queue}-dlq",
+                    serializer.Serialize(deadLetter),
+                    cancellationToken),
+                consumer.Queue,
+                message.Id,
+                cancellationToken);
+            return;
+        }
+
+        var delayIndex = Math.Min(message.ReadCount - 1, consumer.RetryDelays.Count - 1);
+        var retryDelay = delayIndex >= 0 ? consumer.RetryDelays[delayIndex] : consumer.PollingInterval;
+        await TryQueueOperationAsync(
+            "retry scheduling",
+            () => client.SetVisibilityAsync(consumer.Queue, message.Id, retryDelay, cancellationToken),
+            consumer.Queue,
+            message.Id,
+            cancellationToken);
+    }
+
+    private async Task TryReleaseLeaseAsync(QueueEnvelope<T>? envelope, Guid? leaseToken)
+    {
+        if (envelope is null || leaseToken is not { } token) return;
+
+        try
+        {
+            await idempotencyStore.ReleaseAsync(consumerName, envelope.IdempotencyKey, token);
+        }
+        catch (Exception exception)
+        {
+            // The lease expires on its own; a cleanup failure must not hide the original processing error.
+            logger.LogError(exception, "PGMQ idempotency lease release failed. Worker {Worker}, IdempotencyKey {IdempotencyKey}.", consumerName, envelope.IdempotencyKey);
+        }
+    }
+
+    private async Task<bool> TryQueueOperationAsync(
+        string operationName,
+        Func<Task> operation,
+        string queue,
+        long messageId,
         CancellationToken cancellationToken)
     {
         try
         {
             await operation();
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -157,9 +218,17 @@ internal sealed class PgmqWorker<T>(
         catch (Exception exception)
         {
             // The message stays unacknowledged and will reappear after its original visibility timeout.
-            logger.LogError(exception, "PGMQ failure state could not be persisted. Queue {Queue}, MessageId {MessageId}.", consumer.Queue, message.Id);
+            logger.LogError(exception, "PGMQ {OperationName} failed. Queue {Queue}, MessageId {MessageId}.", operationName, queue, messageId);
+            return false;
         }
     }
 
-    private sealed record DeadLetterMessage(string OriginalMessage, string Queue, long MessageId, int DeliveryCount, DateTimeOffset FailedAt, string ExceptionType, string ErrorMessage);
+    private sealed record DeadLetterMessage(
+        string OriginalMessage,
+        string Queue,
+        long MessageId,
+        int DeliveryCount,
+        DateTimeOffset FailedAt,
+        string ExceptionType,
+        string ErrorMessage);
 }
