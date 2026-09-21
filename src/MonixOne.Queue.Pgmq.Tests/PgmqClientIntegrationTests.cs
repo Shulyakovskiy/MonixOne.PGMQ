@@ -1,3 +1,4 @@
+using Dapper;
 using Shouldly;
 using System.Text.Json;
 using Xunit;
@@ -13,7 +14,8 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         await using var command = fixture.DataSource.CreateCommand("""
             SELECT installed_version,
                    EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgmq'),
-                   EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'monixone_queue' AND table_name = 'infrastructure_metadata')
+                   EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'monixone_queue' AND table_name = 'infrastructure_metadata'),
+                   EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'monixone_queue' AND indexname = 'ix_idempotency_keys_completed_at')
             FROM monixone_queue.infrastructure_metadata
             WHERE component = 'pgmq';
             """);
@@ -23,6 +25,7 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         reader.GetString(0).ShouldBe("1.13.0");
         reader.GetBoolean(1).ShouldBeTrue();
         reader.GetBoolean(2).ShouldBeTrue();
+        reader.GetBoolean(3).ShouldBeTrue();
     }
 
     [Fact]
@@ -93,5 +96,41 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
 
         var duplicate = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
         duplicate.IsCompleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IdempotencyStore_DeletesCompletedKeysPastRetentionInBatches()
+    {
+        var store = new PgmqIdempotencyStore(fixture.DataSource);
+        const string consumer = "cleanup";
+        var firstKey = $"first:{Guid.NewGuid():N}";
+        var secondKey = $"second:{Guid.NewGuid():N}";
+
+        var firstClaim = await store.TryAcquireAsync(consumer, firstKey, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+        var secondClaim = await store.TryAcquireAsync(consumer, secondKey, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+        (await store.CompleteAsync(consumer, firstKey, firstClaim.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
+        (await store.CompleteAsync(consumer, secondKey, secondClaim.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
+
+        await using var connection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE monixone_queue.idempotency_keys
+            SET completed_at = now() - interval '2 days'
+            WHERE consumer_name = @consumer;
+            """,
+            new { consumer },
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        var deleted = await store.DeleteCompletedAsync(DateTimeOffset.UtcNow.AddDays(-1), 1, TestContext.Current.CancellationToken);
+        deleted.ShouldBe(1);
+
+        var remaining = await connection.QuerySingleAsync<int>(new CommandDefinition("""
+            SELECT count(*)
+            FROM monixone_queue.idempotency_keys
+            WHERE consumer_name = @consumer
+              AND status = 'completed';
+            """,
+            new { consumer },
+            cancellationToken: TestContext.Current.CancellationToken));
+        remaining.ShouldBe(1);
     }
 }

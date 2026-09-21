@@ -71,4 +71,23 @@ public sealed class PgmqOptionsValidatorTests
         result.Failures.ShouldContain("Queue:Consumers:Notifications:Queue is required.");
         result.Failures.ShouldContain("Queue:Consumers:Notifications:BatchSize must be greater than zero.");
     }
+
+    [Fact]
+    public void Validate_InvalidIdempotencyCleanup_ReturnsFailureWithConfigurationPath()
+    {
+        var options = new PgmqOptions
+        {
+            ConnectionString = "Host=localhost;Database=queue",
+            CompletedIdempotencyRetention = TimeSpan.Zero,
+            IdempotencyCleanupInterval = TimeSpan.Zero,
+            IdempotencyCleanupBatchSize = 0
+        };
+
+        var result = new PgmqOptionsValidator().Validate(null, options);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldContain("Queue:CompletedIdempotencyRetention must be greater than zero.");
+        result.Failures.ShouldContain("Queue:IdempotencyCleanupInterval must be greater than zero.");
+        result.Failures.ShouldContain("Queue:IdempotencyCleanupBatchSize must be greater than zero.");
+    }
 }
