@@ -9,6 +9,9 @@ public sealed class PgmqOptions
     public const string SupportedExtensionVersion = PgmqDeploymentScripts.PgmqVersion;
     public string? ConnectionString { get; set; }
     public string ConnectionStringName { get; set; } = "Queue";
+    public TimeSpan CompletedIdempotencyRetention { get; set; } = TimeSpan.FromDays(1);
+    public TimeSpan IdempotencyCleanupInterval { get; set; } = TimeSpan.FromHours(1);
+    public int IdempotencyCleanupBatchSize { get; set; } = 1_000;
     public QueueConsumerOptions Defaults { get; set; } = new();
     public Dictionary<string, PgmqConsumerOptions> Consumers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -58,6 +61,9 @@ internal sealed class PgmqOptionsValidator : IValidateOptions<PgmqOptions>
     {
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(options.ConnectionString)) errors.Add("Queue connection string is required.");
+        if (options.CompletedIdempotencyRetention <= TimeSpan.Zero) errors.Add("Queue:CompletedIdempotencyRetention must be greater than zero.");
+        if (options.IdempotencyCleanupInterval <= TimeSpan.Zero) errors.Add("Queue:IdempotencyCleanupInterval must be greater than zero.");
+        if (options.IdempotencyCleanupBatchSize <= 0) errors.Add("Queue:IdempotencyCleanupBatchSize must be greater than zero.");
         EnsureDefaultIdempotencyLease(options.Defaults);
         ValidateConsumer("Queue:Defaults", options.Defaults, errors);
         foreach (var (consumerName, consumer) in options.Consumers)

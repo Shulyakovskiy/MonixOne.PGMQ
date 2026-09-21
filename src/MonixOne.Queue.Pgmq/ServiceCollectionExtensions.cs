@@ -78,6 +78,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<QueueJsonSerializer>();
         services.TryAddSingleton<IQueue, PgmqQueue>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PgmqInitializer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PgmqIdempotencyCleanupWorker>());
         return services;
     }
 }

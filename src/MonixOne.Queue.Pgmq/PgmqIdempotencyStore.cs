@@ -65,6 +65,30 @@ internal sealed class PgmqIdempotencyStore(NpgsqlDataSource dataSource)
         return updated == 1;
     }
 
+    public async Task<int> DeleteCompletedAsync(
+        DateTimeOffset completedBefore,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition("""
+            WITH completed AS (
+                SELECT ctid
+                FROM monixone_queue.idempotency_keys
+                WHERE status = 'completed'
+                  AND completed_at < @completedBefore
+                ORDER BY completed_at
+                LIMIT @batchSize
+                FOR UPDATE SKIP LOCKED
+            )
+            DELETE FROM monixone_queue.idempotency_keys AS keys
+            USING completed
+            WHERE keys.ctid = completed.ctid;
+            """,
+            new { completedBefore, batchSize },
+            cancellationToken: cancellationToken));
+    }
+
     public async Task ReleaseAsync(string consumerName, string idempotencyKey, Guid leaseToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(CancellationToken.None);

@@ -32,6 +32,10 @@ CREATE INDEX IF NOT EXISTS ix_idempotency_keys_processing_lease
     ON monixone_queue.idempotency_keys (lease_expires_at)
     WHERE status = 'processing';
 
+CREATE INDEX IF NOT EXISTS ix_idempotency_keys_completed_at
+    ON monixone_queue.idempotency_keys (completed_at)
+    WHERE status = 'completed';
+
 -- The application role only writes the status; it does not own this schema or table.
 GRANT USAGE ON SCHEMA monixone_queue TO CURRENT_USER;
 GRANT SELECT, INSERT, UPDATE ON monixone_queue.infrastructure_metadata TO CURRENT_USER;

@@ -67,6 +67,9 @@ builder.Services.AddHealthChecks().AddPgmq();
   },
   "Queue": {
     "ConnectionStringName": "Queue",
+    "CompletedIdempotencyRetention": "1.00:00:00",
+    "IdempotencyCleanupInterval": "01:00:00",
+    "IdempotencyCleanupBatchSize": 1000,
     "Defaults": {
       "BatchSize": 10,
       "VisibilityTimeout": "00:01:00",
@@ -175,6 +178,12 @@ public sealed class NotificationRequestedHandler
 Критичные доменные изменения и запись idempotency key должны быть
 в одной транзакции прикладного хранилища, если нужна строгая
 атомарность бизнес-эффекта.
+
+Завершённые idempotency keys сохраняются на
+`CompletedIdempotencyRetention` (по умолчанию 24 часа), чтобы подавить
+поздние дубликаты. Фоновая очистка запускается при старте, затем через
+`IdempotencyCleanupInterval` (по умолчанию каждый час) и удаляет записи
+батчами `IdempotencyCleanupBatchSize` (по умолчанию 1000).
 
 DLQ содержит исходное сообщение, исходную очередь и ID,
 число доставок, время ошибки,
