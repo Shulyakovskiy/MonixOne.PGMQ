@@ -1,4 +1,4 @@
-namespace MonixOne.Queue;
+namespace MonixOne.Queue.Pgmq;
 
 public sealed record QueueMessage<T>(
     Guid Id,

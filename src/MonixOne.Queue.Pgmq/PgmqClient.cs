@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using System.Data.Common;
 
 namespace MonixOne.Queue.Pgmq;
 
@@ -11,6 +12,23 @@ internal sealed class PgmqClient(NpgsqlDataSource dataSource)
         return await connection.ExecuteScalarAsync<long>(new CommandDefinition(
             "SELECT pgmq.send(@queue, @body::jsonb)",
             new { queue, body },
+            cancellationToken: cancellationToken));
+    }
+
+    public Task<long> SendAsync(
+        string queue,
+        string body,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var connection = transaction.Connection
+            ?? throw new InvalidOperationException("The caller transaction is not associated with an open connection.");
+
+        return connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT pgmq.send(@queue, @body::jsonb)",
+            new { queue, body },
+            transaction,
             cancellationToken: cancellationToken));
     }
 
