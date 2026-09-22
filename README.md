@@ -122,9 +122,29 @@ await queue.SendAsync(
 W3C trace ID берётся из активного `Activity`
 и хранится отдельно.
 
-> 💡 Когда запись доменных данных и отправка
-> должны быть атомарны,
-> используйте транзакционный outbox.
+Когда доменная запись и постановка в PGMQ находятся в одной PostgreSQL БД,
+передайте транзакцию вызывающей стороны. Тогда `pgmq.send` и доменные изменения
+фиксируются или откатываются вместе; отдельный transactional outbox не нужен.
+
+```csharp
+await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+db.Notifications.Add(notification);
+await db.SaveChangesAsync(cancellationToken);
+
+await queue.SendAsync(
+    "notifications",
+    new NotificationRequested(notification.UserId, notification.Text),
+    new QueueSendOptions { IdempotencyKey = $"notification:{notification.Id}" },
+    transaction.GetDbTransaction(),
+    cancellationToken);
+
+await transaction.CommitAsync(cancellationToken);
+```
+
+`GetDbTransaction()` — расширение `Microsoft.EntityFrameworkCore.Storage`.
+Если очередь и доменные данные находятся в разных БД либо отправка идёт во внешний
+брокер, используйте transactional outbox.
 
 ## ⚙️ Обработчик
 

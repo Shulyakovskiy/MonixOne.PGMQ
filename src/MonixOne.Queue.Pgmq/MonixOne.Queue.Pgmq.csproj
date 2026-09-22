@@ -8,7 +8,7 @@
     <PackageIcon>nuget-icon.png</PackageIcon>
     <Authors>Shulyakovsky.E</Authors>
     <Copyright>MonixOne</Copyright>
-    <Version>1.2.3</Version>
+    <Version>1.3.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/Shulyakovskiy/MonixOne.PGMQ</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Shulyakovskiy/MonixOne.PGMQ</RepositoryUrl>

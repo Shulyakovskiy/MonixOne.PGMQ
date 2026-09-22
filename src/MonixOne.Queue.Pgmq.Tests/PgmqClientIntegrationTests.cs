@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System.Text.Json;
 using Xunit;
@@ -60,6 +61,52 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         await fixture.Client.DeleteAsync(fixture.Queue, messageId, TestContext.Current.CancellationToken);
         var afterDelete = await fixture.Client.ReadAsync(fixture.Queue, 1, 10, TestContext.Current.CancellationToken);
         afterDelete.ShouldNotContain(item => item.Id == messageId);
+    }
+
+    [Fact]
+    public async Task SendAsync_WithCallerTransaction_RollsBackDomainWriteAndMessageTogether()
+    {
+        var domainEventId = Guid.NewGuid();
+        var queue = new PgmqQueue(fixture.Client, new QueueJsonSerializer(), NullLogger<PgmqQueue>.Instance);
+
+        await using (var setupConnection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
+        {
+            await setupConnection.ExecuteAsync(new CommandDefinition("""
+                CREATE TABLE IF NOT EXISTS integration_domain_events (
+                    id uuid PRIMARY KEY,
+                    created_at timestamptz NOT NULL
+                );
+                """, cancellationToken: TestContext.Current.CancellationToken));
+        }
+
+        long messageId;
+        await using (var connection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
+        await using (var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken))
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO integration_domain_events (id, created_at) VALUES (@domainEventId, now())",
+                new { domainEventId },
+                transaction,
+                cancellationToken: TestContext.Current.CancellationToken));
+            messageId = await queue.SendAsync(
+                fixture.Queue,
+                new TransactionalMessage(domainEventId),
+                new QueueSendOptions { IdempotencyKey = $"transactional:{domainEventId:N}" },
+                transaction,
+                TestContext.Current.CancellationToken);
+
+            await transaction.RollbackAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using var verificationConnection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        var domainEventCount = await verificationConnection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT count(*) FROM integration_domain_events WHERE id = @domainEventId",
+            new { domainEventId },
+            cancellationToken: TestContext.Current.CancellationToken));
+        domainEventCount.ShouldBe(0);
+
+        var messages = await fixture.Client.ReadAsync(fixture.Queue, 1, 100, TestContext.Current.CancellationToken);
+        messages.ShouldNotContain(message => message.Id == messageId);
     }
 
     [Fact]
@@ -133,4 +180,6 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
             cancellationToken: TestContext.Current.CancellationToken));
         remaining.ShouldBe(1);
     }
+
+    private sealed record TransactionalMessage(Guid DomainEventId);
 }
