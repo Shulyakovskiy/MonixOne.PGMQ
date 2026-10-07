@@ -15,6 +15,11 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
     public NpgsqlDataSource DataSource { get; private set; } = null!;
     internal PgmqClient Client { get; private set; } = null!;
     public string Queue => QueueName;
+    public string DeadLetterQueue => PgmqOptions.DefaultDeadLetterQueue;
+    internal string ConnectionString => _container!.GetConnectionString();
+
+    internal PgmqQueue CreateQueue(PgmqClient? client = null) => new(client ?? Client, new QueueJsonSerializer(),
+        NullLogger<PgmqQueue>.Instance, Options.Create(new PgmqOptions { DeadLetterQueue = DeadLetterQueue }));
 
     public async ValueTask InitializeAsync()
     {
@@ -23,7 +28,7 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
             .WithUsername("queue_tests")
             .WithPassword("queue_tests")
             .Build();
-        await _container.StartAsync();
+        await _container.StartAsync(TestContext.Current.CancellationToken);
 
         DataSource = NpgsqlDataSource.Create(_container.GetConnectionString());
 
@@ -44,8 +49,10 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
-        if (DataSource is not null) await DataSource.DisposeAsync();
-        if (_container is not null) await _container.DisposeAsync();
+        if (DataSource is not null)
+            await DataSource.DisposeAsync();
+        if (_container is not null)
+            await _container.DisposeAsync();
     }
 }
 

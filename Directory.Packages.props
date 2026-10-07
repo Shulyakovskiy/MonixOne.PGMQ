@@ -6,6 +6,7 @@
         <PackageVersion Include="Dapper" Version="2.1.79" />
         <PackageVersion Include="Npgsql" Version="10.0.0" />
         <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
         <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.0" />
         <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.0" />
         <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />

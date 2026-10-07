@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Data.Common;
 
 namespace MonixOne.Queue.Pgmq;
@@ -6,14 +7,40 @@ namespace MonixOne.Queue.Pgmq;
 internal sealed class PgmqQueue(
     PgmqClient client,
     QueueJsonSerializer serializer,
-    ILogger<PgmqQueue> logger) : IQueue
+    ILogger<PgmqQueue> logger,
+    IOptions<PgmqOptions> options) : IQueue
 {
+    public async Task<QueueDeadLetterPage> GetDeadLetterMessagesAsync(
+        QueueDeadLetterQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        query ??= new QueueDeadLetterQuery();
+        ArgumentOutOfRangeException.ThrowIfNegative(query.AfterId);
+        if (query.PageSize is < 1 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(query), "DLQ PageSize must be between 1 and 500.");
+        if (query.Queue is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(query.Queue);
+        if (query.Topic is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(query.Topic);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var rows = await client.GetDeadLetterMessagesAsync(options.Value.DeadLetterQueue, query, cancellationToken);
+        var messages = new List<QueueDeadLetterMessage>(Math.Min(rows.Count, query.PageSize));
+        foreach (var row in rows.Take(query.PageSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            messages.Add(serializer.DeserializeDeadLetter(row.Id, row.Body));
+        }
+        return new QueueDeadLetterPage(messages,
+            rows.Count > query.PageSize ? messages[^1].Id : null);
+    }
+
     public async Task<long> SendAsync<T>(
         string queue, T message,
         QueueSendOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
+        cancellationToken.ThrowIfCancellationRequested();
         var messageId = await client.SendAsync(queue, serializer.Serialize(message, options), cancellationToken);
         logger.LogDebug(
             "PGMQ message sent. Queue {Queue}, MessageId {MessageId}, MessageType {MessageType}.",
@@ -32,6 +59,7 @@ internal sealed class PgmqQueue(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
         ArgumentNullException.ThrowIfNull(transaction);
+        cancellationToken.ThrowIfCancellationRequested();
         var messageId = await client.SendAsync(
             queue,
             serializer.Serialize(message, options),
@@ -51,18 +79,12 @@ internal sealed class PgmqQueue(
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
-        ArgumentNullException.ThrowIfNull(messages);
-        logger.LogDebug("PGMQ batch send started. Queue {Queue}, Count {Count}.", queue, messages.Count);
-        // PGMQ has no batch-send primitive. Keeping sends sequential preserves cancellation semantics.
-        foreach (var message in messages)
-        {
-            await client.SendAsync(
-                queue,
-                serializer.Serialize(message.Message, message.Options),
-                cancellationToken);
-        }
-
-        logger.LogDebug("PGMQ batch sent. Queue {Queue}, Count {Count}.", queue, messages.Count);
+        var bodies = SerializeBatch(messages, cancellationToken);
+        if (bodies.Length == 0)
+            return;
+        // PGMQ 1.13 supports atomic batch insertion through a single command and pooled connection.
+        await client.SendBatchAsync(queue, bodies, cancellationToken);
+        logger.LogDebug("PGMQ batch sent. Queue {Queue}, Count {Count}.", queue, bodies.Length);
     }
 
     public async Task SendBatchAsync<T>(
@@ -72,19 +94,24 @@ internal sealed class PgmqQueue(
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
-        ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(transaction);
-        logger.LogDebug("PGMQ transactional batch send started. Queue {Queue}, Count {Count}.", queue, messages.Count);
+        var bodies = SerializeBatch(messages, cancellationToken);
+        if (bodies.Length == 0)
+            return;
+        await client.SendBatchAsync(queue, bodies, transaction, cancellationToken);
+        logger.LogDebug("PGMQ transactional batch send added. Queue {Queue}, Count {Count}.", queue, bodies.Length);
+    }
 
-        foreach (var message in messages)
+    private string[] SerializeBatch<T>(IReadOnlyCollection<QueueBatchItem<T>> messages, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        cancellationToken.ThrowIfCancellationRequested();
+        var bodies = new List<string>(messages.Count);
+        foreach (var item in messages)
         {
-            await client.SendAsync(
-                queue,
-                serializer.Serialize(message.Message, message.Options),
-                transaction,
-                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            bodies.Add(serializer.Serialize(item.Message, item.Options));
         }
-
-        logger.LogDebug("PGMQ transactional batch send added. Queue {Queue}, Count {Count}.", queue, messages.Count);
+        return bodies.ToArray();
     }
 }
