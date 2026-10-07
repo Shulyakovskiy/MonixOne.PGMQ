@@ -48,6 +48,14 @@ public sealed class QueueContractTests
             new QueueSendOptions { IdempotencyKey = " " }));
     }
 
+    [Fact]
+    public void QueueDeserialization_RejectsKeyThatCannotBePersisted()
+    {
+        var body = System.Text.Json.JsonSerializer.Serialize(new { idempotencyKey = new string('x', 513) });
+
+        Should.Throw<QueueException>(() => new QueueJsonSerializer().Deserialize<VersionedMessage>(body));
+    }
+
     [QueueMessage("notification.requested", Version = 2)]
     private sealed record VersionedMessage(Guid UserId);
 }

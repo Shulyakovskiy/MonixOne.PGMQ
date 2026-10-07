@@ -36,13 +36,15 @@ public static class ServiceCollectionExtensions
         where THandler : class, IQueueHandler<TMessage>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(consumerName);
-        services.AddScoped<IQueueHandler<TMessage>, THandler>();
+        // Named consumers of the same message type must resolve their own scoped handler.
+        services.AddKeyedScoped<IQueueHandler<TMessage>, THandler>(consumerName);
         services.AddSingleton<IHostedService>(serviceProvider => new PgmqWorker<TMessage>(
             consumerName,
             serviceProvider.GetRequiredService<PgmqClient>(),
             serviceProvider.GetRequiredService<PgmqIdempotencyStore>(),
             serviceProvider.GetRequiredService<QueueJsonSerializer>(),
             serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            serviceProvider.GetRequiredService<IHostApplicationLifetime>(),
             serviceProvider.GetRequiredService<IOptions<PgmqOptions>>(),
             serviceProvider.GetRequiredService<ILogger<PgmqWorker<TMessage>>>()));
         return services;
@@ -69,7 +71,8 @@ public static class ServiceCollectionExtensions
             ServiceDescriptor.Singleton<IValidateOptions<PgmqOptions>, PgmqOptionsValidator>());
         services.TryAddSingleton<NpgsqlDataSource>(serviceProvider =>
         {
-            // One data source owns Npgsql's host-wide connection pool; queue operations lease pooled connections.
+            // One data source owns Npgsql's host-wide connection pool; queue operations lease
+            // pooled connections.
             var connectionString = serviceProvider.GetRequiredService<IOptions<PgmqOptions>>().Value.ConnectionString!;
             return NpgsqlDataSource.Create(connectionString);
         });

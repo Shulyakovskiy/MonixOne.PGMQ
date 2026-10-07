@@ -46,10 +46,13 @@ internal sealed class PgmqIdempotencyCleanupWorker(
 
         do
         {
+            // Bound each batch independently, including connection-pool and row-lock waits.
+            using var batchCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            batchCancellation.CancelAfter(cleanupOptions.Defaults.QueueOperationTimeout);
             batchDeleted = await idempotencyStore.DeleteCompletedAsync(
                 completedBefore,
                 cleanupOptions.IdempotencyCleanupBatchSize,
-                cancellationToken);
+                batchCancellation.Token);
             deleted += batchDeleted;
         }
         while (batchDeleted == cleanupOptions.IdempotencyCleanupBatchSize);

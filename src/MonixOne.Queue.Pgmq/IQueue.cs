@@ -4,6 +4,14 @@ namespace MonixOne.Queue.Pgmq;
 
 public interface IQueue
 {
+    /// <summary>
+    /// Inspects failed messages from every source queue through one shared DLQ. Optional filters and
+    /// keyset pagination bound memory use; reading does not alter visibility or acknowledge entries.
+    /// </summary>
+    Task<QueueDeadLetterPage> GetDeadLetterMessagesAsync(
+        QueueDeadLetterQuery? query = null,
+        CancellationToken cancellationToken = default);
+
     Task<long> SendAsync<T>(
         string queue,
         T message,
@@ -21,6 +29,9 @@ public interface IQueue
         DbTransaction transaction,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Validates and serializes the batch before inserting all messages through one atomic SQL command.
+    /// </summary>
     Task SendBatchAsync<T>(
         string queue,
         IReadOnlyCollection<QueueBatchItem<T>> messages,

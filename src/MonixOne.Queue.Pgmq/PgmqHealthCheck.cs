@@ -21,6 +21,10 @@ internal sealed class PgmqHealthCheck(NpgsqlDataSource dataSource) : IHealthChec
                 ? HealthCheckResult.Healthy($"PGMQ {version} is available.")
                 : HealthCheckResult.Unhealthy($"PGMQ {PgmqDeploymentScripts.PgmqVersion} is required; detected '{version ?? "not installed"}'.");
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception)
         {
             return HealthCheckResult.Unhealthy("PostgreSQL or PGMQ is unavailable.", exception);
