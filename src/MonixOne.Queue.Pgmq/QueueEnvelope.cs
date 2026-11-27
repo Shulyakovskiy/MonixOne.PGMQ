@@ -9,7 +9,8 @@ internal sealed record QueueEnvelope<T>(
     string? CorrelationId,
     string? TraceId,
     DateTimeOffset CreatedAt,
-    T Payload);
+    T Payload
+);
 
 /// <summary>
 /// A physical delivery and its database timestamps; ReadCount fences stale workers after
@@ -35,7 +36,8 @@ internal sealed record PgmqMessage(
     int ReadCount,
     string Body,
     DateTime ReadAt,
-    DateTime VisibleUntil)
+    DateTime VisibleUntil
+)
 {
     /// <summary>
     /// Local monotonic timestamp captured before read connection acquisition, conservatively

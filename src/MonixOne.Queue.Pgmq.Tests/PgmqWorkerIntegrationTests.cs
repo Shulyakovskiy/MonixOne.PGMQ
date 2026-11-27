@@ -41,8 +41,14 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
 
         test.State.Disposed.Task.IsCompleted.ShouldBeTrue();
         (await fixture.Client.ReadAsync(test.Queue, 30, 1, Token)).Count.ShouldBe(1);
-        (await new PgmqIdempotencyStore(fixture.DataSource)
-            .TryAcquireAsync(test.Queue, test.Key, TimeSpan.FromSeconds(5), Token)).IsAcquired.ShouldBeTrue();
+        (
+            await new PgmqIdempotencyStore(fixture.DataSource).TryAcquireAsync(
+                test.Queue,
+                test.Key,
+                TimeSpan.FromSeconds(5),
+                Token
+            )
+        ).IsAcquired.ShouldBeTrue();
     }
 
     [Fact]
@@ -61,14 +67,23 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
     [Fact]
     public async Task UncooperativeHandler_StopsApplicationKeepsLeaseAndPreservesLiveScope()
     {
-        await using var test = await StartWorkerAsync(TimeSpan.FromMilliseconds(1100), ignoreCancellation: true);
+        await using var test = await StartWorkerAsync(
+            TimeSpan.FromMilliseconds(1100),
+            ignoreCancellation: true
+        );
         await test.State.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
         await test.Lifetime.StopRequested.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
 
         test.State.Disposed.Task.IsCompleted.ShouldBeFalse();
         await WaitForStatusAsync(test, "processing");
-        (await new PgmqIdempotencyStore(fixture.DataSource)
-            .TryAcquireAsync(test.Queue, test.Key, TimeSpan.FromSeconds(5), Token)).IsInProgress.ShouldBeTrue();
+        (
+            await new PgmqIdempotencyStore(fixture.DataSource).TryAcquireAsync(
+                test.Queue,
+                test.Key,
+                TimeSpan.FromSeconds(5),
+                Token
+            )
+        ).IsInProgress.ShouldBeTrue();
 
         test.State.Finish.TrySetResult();
         await test.State.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
@@ -78,18 +93,24 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
     [Fact]
     public async Task InvalidIdempotencyKey_ReachesDeadLetterWithoutStartingHandler()
     {
-        var body = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            idempotencyKey = new string('x', 513), payload = new { value = 1 }
-        });
-        await using var test = await StartWorkerAsync(TimeSpan.FromSeconds(4), body: body, maxAttempts: 1);
+        var body = System.Text.Json.JsonSerializer.Serialize(
+            new { idempotencyKey = new string('x', 513), payload = new { value = 1 } }
+        );
+        await using var test = await StartWorkerAsync(
+            TimeSpan.FromSeconds(4),
+            body: body,
+            maxAttempts: 1
+        );
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         IReadOnlyList<QueueDeadLetterMessage> deadLetters;
         do
         {
-            deadLetters = (await fixture.CreateQueue().GetDeadLetterMessagesAsync(
-                new() { Queue = test.Queue }, timeout.Token)).Messages;
+            deadLetters = (
+                await fixture
+                    .CreateQueue()
+                    .GetDeadLetterMessagesAsync(new() { Queue = test.Queue }, timeout.Token)
+            ).Messages;
             if (deadLetters.Count == 0)
                 await Task.Delay(TimeSpan.FromMilliseconds(20), timeout.Token);
         } while (deadLetters.Count == 0);
@@ -110,8 +131,13 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
         var secondQueue = $"second_{Guid.NewGuid():N}";
         await using (var connection = await fixture.DataSource.OpenConnectionAsync(Token))
         {
-            await connection.ExecuteAsync(new CommandDefinition("SELECT pgmq.create(@firstQueue); SELECT pgmq.create(@secondQueue)",
-                new { firstQueue, secondQueue }, cancellationToken: Token));
+            await connection.ExecuteAsync(
+                new CommandDefinition(
+                    "SELECT pgmq.create(@firstQueue); SELECT pgmq.create(@secondQueue)",
+                    new { firstQueue, secondQueue },
+                    cancellationToken: Token
+                )
+            );
         }
         var state = new RoutingState();
         using var lifetime = new TestLifetime();
@@ -121,26 +147,44 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
         services.AddSingleton(new PgmqIdempotencyStore(fixture.DataSource));
         services.AddSingleton<QueueJsonSerializer>();
         services.AddSingleton<IHostApplicationLifetime>(lifetime);
-        services.AddSingleton<ILogger<PgmqWorker<WorkerMessage>>>(NullLogger<PgmqWorker<WorkerMessage>>.Instance);
-        services.AddSingleton<IOptions<PgmqOptions>>(Options.Create(new PgmqOptions
-        {
-            Consumers = new()
-            {
-                ["First"] = CreateConsumer(firstQueue, TimeSpan.FromSeconds(4)),
-                ["Second"] = CreateConsumer(secondQueue, TimeSpan.FromSeconds(4))
-            }
-        }));
+        services.AddSingleton<ILogger<PgmqWorker<WorkerMessage>>>(
+            NullLogger<PgmqWorker<WorkerMessage>>.Instance
+        );
+        services.AddSingleton<IOptions<PgmqOptions>>(
+            Options.Create(
+                new PgmqOptions
+                {
+                    Consumers = new()
+                    {
+                        ["First"] = CreateConsumer(firstQueue, TimeSpan.FromSeconds(4)),
+                        ["Second"] = CreateConsumer(secondQueue, TimeSpan.FromSeconds(4)),
+                    },
+                }
+            )
+        );
         services.AddQueueConsumer<WorkerMessage, FirstHandler>("First");
         services.AddQueueConsumer<WorkerMessage, SecondHandler>("Second");
-        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        await using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true }
+        );
         var workers = provider.GetServices<IHostedService>().ToArray();
         try
         {
             foreach (var worker in workers)
                 await worker.StartAsync(Token);
             var queue = fixture.CreateQueue();
-            await queue.SendAsync(firstQueue, new WorkerMessage(1), new() { IdempotencyKey = "first" }, Token);
-            await queue.SendAsync(secondQueue, new WorkerMessage(2), new() { IdempotencyKey = "second" }, Token);
+            await queue.SendAsync(
+                firstQueue,
+                new WorkerMessage(1),
+                new() { IdempotencyKey = "first" },
+                Token
+            );
+            await queue.SendAsync(
+                secondQueue,
+                new WorkerMessage(2),
+                new() { IdempotencyKey = "second" },
+                Token
+            );
 
             (await state.First.Task.WaitAsync(TimeSpan.FromSeconds(3), Token)).ShouldBeTrue();
             (await state.Second.Task.WaitAsync(TimeSpan.FromSeconds(3), Token)).ShouldBeTrue();
@@ -166,19 +210,35 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
         waiting.ShouldAllBe(message => message.ReadCount == 1);
     }
 
-    private async Task<TestWorker> StartWorkerAsync(TimeSpan maxDuration, bool ignoreCancellation = false,
-        string? body = null, int maxAttempts = 5)
+    private async Task<TestWorker> StartWorkerAsync(
+        TimeSpan maxDuration,
+        bool ignoreCancellation = false,
+        string? body = null,
+        int maxAttempts = 5
+    )
     {
         var queue = $"worker_{Guid.NewGuid():N}";
         var key = $"worker-key:{Guid.NewGuid():N}";
         await using (var connection = await fixture.DataSource.OpenConnectionAsync(Token))
         {
-            await connection.ExecuteAsync(new CommandDefinition("SELECT pgmq.create(@queue);",
-                new { queue }, cancellationToken: Token));
+            await connection.ExecuteAsync(
+                new CommandDefinition(
+                    "SELECT pgmq.create(@queue);",
+                    new { queue },
+                    cancellationToken: Token
+                )
+            );
         }
         var serializer = new QueueJsonSerializer();
-        await fixture.Client.SendAsync(queue, body ?? serializer.Serialize(new WorkerMessage(1),
-            new QueueSendOptions { IdempotencyKey = key }), Token);
+        await fixture.Client.SendAsync(
+            queue,
+            body
+                ?? serializer.Serialize(
+                    new WorkerMessage(1),
+                    new QueueSendOptions { IdempotencyKey = key }
+                ),
+            Token
+        );
         var state = new HandlerState(ignoreCancellation);
         var lifetime = new TestLifetime();
         var services = new ServiceCollection();
@@ -188,10 +248,16 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
         var provider = services.BuildServiceProvider();
         var consumer = CreateConsumer(queue, maxDuration);
         consumer.MaxAttempts = maxAttempts;
-        var worker = new PgmqWorker<WorkerMessage>(queue, fixture.Client, new PgmqIdempotencyStore(fixture.DataSource),
-            serializer, provider.GetRequiredService<IServiceScopeFactory>(), lifetime,
+        var worker = new PgmqWorker<WorkerMessage>(
+            queue,
+            fixture.Client,
+            new PgmqIdempotencyStore(fixture.DataSource),
+            serializer,
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            lifetime,
             Options.Create(new PgmqOptions { Consumers = new() { [queue] = consumer } }),
-            NullLogger<PgmqWorker<WorkerMessage>>.Instance);
+            NullLogger<PgmqWorker<WorkerMessage>>.Instance
+        );
         await worker.StartAsync(Token);
         return new TestWorker(queue, key, worker, state, lifetime, provider);
     }
@@ -203,29 +269,45 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
         await using var connection = await fixture.DataSource.OpenConnectionAsync(timeout.Token);
         while (true)
         {
-            var status = await connection.ExecuteScalarAsync<string?>(new CommandDefinition("""
-                SELECT status FROM monixone_queue.idempotency_keys
-                WHERE consumer_name = @consumer AND idempotency_key = @key;
-                """, new { consumer = test.Queue, key = test.Key }, cancellationToken: timeout.Token));
+            var status = await connection.ExecuteScalarAsync<string?>(
+                new CommandDefinition(
+                    """
+                    SELECT status FROM monixone_queue.idempotency_keys
+                    WHERE consumer_name = @consumer AND idempotency_key = @key;
+                    """,
+                    new { consumer = test.Queue, key = test.Key },
+                    cancellationToken: timeout.Token
+                )
+            );
             if (status == expected)
                 return;
             await Task.Delay(TimeSpan.FromMilliseconds(20), timeout.Token);
         }
     }
 
-    private static PgmqConsumerOptions CreateConsumer(string queue, TimeSpan maxDuration) => new()
-    {
-        Queue = queue, BatchSize = 10, Concurrency = 1,
-        VisibilityTimeout = TimeSpan.FromSeconds(1), VisibilityRenewalInterval = TimeSpan.FromMilliseconds(100),
-        MaxProcessingDuration = maxDuration, HandlerCancellationGracePeriod = TimeSpan.FromMilliseconds(150),
-        QueueOperationTimeout = TimeSpan.FromMilliseconds(300), IdempotencyLease = TimeSpan.FromSeconds(6),
-        PollingInterval = TimeSpan.FromMilliseconds(20), MaxAttempts = 5, RetryDelays = [TimeSpan.FromSeconds(30)]
-    };
+    private static PgmqConsumerOptions CreateConsumer(string queue, TimeSpan maxDuration) =>
+        new()
+        {
+            Queue = queue,
+            BatchSize = 10,
+            Concurrency = 1,
+            VisibilityTimeout = TimeSpan.FromSeconds(1),
+            VisibilityRenewalInterval = TimeSpan.FromMilliseconds(100),
+            MaxProcessingDuration = maxDuration,
+            HandlerCancellationGracePeriod = TimeSpan.FromMilliseconds(150),
+            QueueOperationTimeout = TimeSpan.FromMilliseconds(300),
+            IdempotencyLease = TimeSpan.FromSeconds(6),
+            PollingInterval = TimeSpan.FromMilliseconds(20),
+            MaxAttempts = 5,
+            RetryDelays = [TimeSpan.FromSeconds(30)],
+        };
 
     private sealed class RoutingState
     {
-        public TaskCompletionSource<bool> First { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource<bool> Second { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> First { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Second { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class FirstHandler(RoutingState state) : IQueueHandler<WorkerMessage>
@@ -251,9 +333,13 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
 
     private sealed class HandlerState(bool ignoreCancellation)
     {
-        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Finish { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Finish { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public async Task HandleAsync(CancellationToken ct)
         {
             Started.TrySetResult();
@@ -264,7 +350,8 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
         }
     }
 
-    private sealed class TestHandler(HandlerState state, ScopeProbe probe) : IQueueHandler<WorkerMessage>
+    private sealed class TestHandler(HandlerState state, ScopeProbe probe)
+        : IQueueHandler<WorkerMessage>
     {
         public Task HandleAsync(WorkerMessage message, CancellationToken cancellationToken)
         {
@@ -275,22 +362,39 @@ public sealed class PgmqWorkerIntegrationTests(PgmqContainerFixture fixture)
 
     private sealed class ScopeProbe(HandlerState state) : IAsyncDisposable
     {
-        public ValueTask DisposeAsync() { state.Disposed.TrySetResult(); return ValueTask.CompletedTask; }
+        public ValueTask DisposeAsync()
+        {
+            state.Disposed.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class TestLifetime : IHostApplicationLifetime, IDisposable
     {
         private readonly CancellationTokenSource _stopping = new();
-        public TaskCompletionSource StopRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource StopRequested { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         public CancellationToken ApplicationStarted => CancellationToken.None;
         public CancellationToken ApplicationStopping => _stopping.Token;
         public CancellationToken ApplicationStopped => CancellationToken.None;
-        public void StopApplication() { _stopping.Cancel(); StopRequested.TrySetResult(); }
+
+        public void StopApplication()
+        {
+            _stopping.Cancel();
+            StopRequested.TrySetResult();
+        }
+
         public void Dispose() => _stopping.Dispose();
     }
 
-    private sealed record TestWorker(string Queue, string Key, PgmqWorker<WorkerMessage> Worker, HandlerState State,
-        TestLifetime Lifetime, ServiceProvider Provider) : IAsyncDisposable
+    private sealed record TestWorker(
+        string Queue,
+        string Key,
+        PgmqWorker<WorkerMessage> Worker,
+        HandlerState State,
+        TestLifetime Lifetime,
+        ServiceProvider Provider
+    ) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {

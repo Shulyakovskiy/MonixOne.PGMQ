@@ -13,26 +13,36 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddPgmq(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration
+    )
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var section = configuration.GetSection(PgmqOptions.SectionName);
-        return AddPgmqCore(services, options =>
-        {
-            section.Bind(options);
-            options.ConnectionString ??= configuration.GetConnectionString(options.ConnectionStringName);
-        });
+        return AddPgmqCore(
+            services,
+            options =>
+            {
+                section.Bind(options);
+                options.ConnectionString ??= configuration.GetConnectionString(
+                    options.ConnectionStringName
+                );
+            }
+        );
     }
 
     public static IServiceCollection AddPgmq(
         this IServiceCollection services,
-        IConfigurationSection section)
+        IConfigurationSection section
+    )
     {
         ArgumentNullException.ThrowIfNull(section);
         return AddPgmqCore(services, section.Bind);
     }
 
-    public static IServiceCollection AddQueueConsumer<TMessage, THandler>(this IServiceCollection services, string consumerName)
+    public static IServiceCollection AddQueueConsumer<TMessage, THandler>(
+        this IServiceCollection services,
+        string consumerName
+    )
         where THandler : class, IQueueHandler<TMessage>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(consumerName);
@@ -46,7 +56,8 @@ public static class ServiceCollectionExtensions
             serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             serviceProvider.GetRequiredService<IHostApplicationLifetime>(),
             serviceProvider.GetRequiredService<IOptions<PgmqOptions>>(),
-            serviceProvider.GetRequiredService<ILogger<PgmqWorker<TMessage>>>()));
+            serviceProvider.GetRequiredService<ILogger<PgmqWorker<TMessage>>>()
+        ));
         return services;
     }
 
@@ -54,26 +65,37 @@ public static class ServiceCollectionExtensions
         this IHealthChecksBuilder builder,
         string? name = null,
         HealthStatus? failureStatus = null,
-        IEnumerable<string>? tags = null)
+        IEnumerable<string>? tags = null
+    )
     {
-        return builder.Add(new HealthCheckRegistration(name ?? "pgmq", serviceProvider => new PgmqHealthCheck(
-            serviceProvider.GetRequiredService<NpgsqlDataSource>()), failureStatus, tags));
+        return builder.Add(
+            new HealthCheckRegistration(
+                name ?? "pgmq",
+                serviceProvider => new PgmqHealthCheck(
+                    serviceProvider.GetRequiredService<NpgsqlDataSource>()
+                ),
+                failureStatus,
+                tags
+            )
+        );
     }
 
     private static IServiceCollection AddPgmqCore(
         IServiceCollection services,
-        Action<PgmqOptions> configure)
+        Action<PgmqOptions> configure
+    )
     {
-        services.AddOptions<PgmqOptions>()
-            .Configure(configure)
-            .ValidateOnStart();
+        services.AddOptions<PgmqOptions>().Configure(configure).ValidateOnStart();
         services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IValidateOptions<PgmqOptions>, PgmqOptionsValidator>());
+            ServiceDescriptor.Singleton<IValidateOptions<PgmqOptions>, PgmqOptionsValidator>()
+        );
         services.TryAddSingleton<NpgsqlDataSource>(serviceProvider =>
         {
             // One data source owns Npgsql's host-wide connection pool; queue operations lease
             // pooled connections.
-            var connectionString = serviceProvider.GetRequiredService<IOptions<PgmqOptions>>().Value.ConnectionString!;
+            var connectionString = serviceProvider
+                .GetRequiredService<IOptions<PgmqOptions>>()
+                .Value.ConnectionString!;
             return NpgsqlDataSource.Create(connectionString);
         });
         services.TryAddSingleton<PgmqClient>();
@@ -81,7 +103,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<QueueJsonSerializer>();
         services.TryAddSingleton<IQueue, PgmqQueue>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PgmqInitializer>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PgmqIdempotencyCleanupWorker>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHostedService, PgmqIdempotencyCleanupWorker>()
+        );
         return services;
     }
 }

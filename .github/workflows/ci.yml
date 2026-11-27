@@ -27,6 +27,11 @@ jobs:
           docker info
           docker pull ghcr.io/pgmq/pg17-pgmq:v1.13.0
 
+      - name: Check formatting
+        run: |
+          dotnet tool restore
+          dotnet csharpier check .
+
       - name: Restore
         run: dotnet restore MonixOne.PGMQ.sln --disable-parallel
 

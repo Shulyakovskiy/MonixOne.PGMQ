@@ -7,7 +7,10 @@
           <value>
             <SchemaInfo>
               <option name="name" value="GitHub Workflow" />
-              <option name="relativePathToSchema" value="https://www.schemastore.org/github-workflow.json" />
+              <option
+                name="relativePathToSchema"
+                value="https://www.schemastore.org/github-workflow.json"
+              />
               <option name="applicationDefined" value="true" />
               <option name="patterns">
                 <list>

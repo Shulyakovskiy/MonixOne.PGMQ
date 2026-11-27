@@ -1,7 +1,7 @@
+using System.Text.Json;
 using Dapper;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using System.Text.Json;
 using Xunit;
 
 namespace MonixOne.Queue.Pgmq.Tests;
@@ -16,22 +16,30 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         await cancellation.CancelAsync();
         var check = new PgmqHealthCheck(fixture.DataSource);
 
-        await Should.ThrowAsync<OperationCanceledException>(() => check.CheckHealthAsync(
-            new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext(), cancellation.Token));
+        await Should.ThrowAsync<OperationCanceledException>(() =>
+            check.CheckHealthAsync(
+                new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext(),
+                cancellation.Token
+            )
+        );
     }
 
     [Fact]
     public async Task StartupProvisioning_AppliesBundledPgmqSqlAndMetadata()
     {
-        await using var command = fixture.DataSource.CreateCommand("""
+        await using var command = fixture.DataSource.CreateCommand(
+            """
             SELECT installed_version,
                    EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgmq'),
                    EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'monixone_queue' AND table_name = 'infrastructure_metadata'),
                    EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'monixone_queue' AND indexname = 'ix_idempotency_keys_completed_at')
             FROM monixone_queue.infrastructure_metadata
             WHERE component = 'pgmq';
-            """);
-        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            """
+        );
+        await using var reader = await command.ExecuteReaderAsync(
+            TestContext.Current.CancellationToken
+        );
 
         (await reader.ReadAsync(TestContext.Current.CancellationToken)).ShouldBeTrue();
         reader.GetString(0).ShouldBe("1.13.0");
@@ -43,13 +51,17 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
     [Fact]
     public async Task StartupProvisioning_CreatesConfiguredQueueAndSharedDeadLetterQueue()
     {
-        await using var command = fixture.DataSource.CreateCommand("""
+        await using var command = fixture.DataSource.CreateCommand(
+            """
             SELECT EXISTS (SELECT 1 FROM pgmq.meta WHERE queue_name = @queue),
                    EXISTS (SELECT 1 FROM pgmq.meta WHERE queue_name = @deadLetterQueue);
-            """);
+            """
+        );
         command.Parameters.AddWithValue("queue", fixture.Queue);
         command.Parameters.AddWithValue("deadLetterQueue", fixture.DeadLetterQueue);
-        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        await using var reader = await command.ExecuteReaderAsync(
+            TestContext.Current.CancellationToken
+        );
 
         (await reader.ReadAsync(TestContext.Current.CancellationToken)).ShouldBeTrue();
         reader.GetBoolean(0).ShouldBeTrue();
@@ -61,16 +73,34 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
     {
         const string body = """{"kind":"roundtrip"}""";
 
-        var messageId = await fixture.Client.SendAsync(fixture.Queue, body, TestContext.Current.CancellationToken);
-        var messages = await fixture.Client.ReadAsync(fixture.Queue, 30, 10, TestContext.Current.CancellationToken);
+        var messageId = await fixture.Client.SendAsync(
+            fixture.Queue,
+            body,
+            TestContext.Current.CancellationToken
+        );
+        var messages = await fixture.Client.ReadAsync(
+            fixture.Queue,
+            30,
+            10,
+            TestContext.Current.CancellationToken
+        );
 
         var message = messages.Single(item => item.Id == messageId);
         message.ReadCount.ShouldBe(1);
         using var messageJson = JsonDocument.Parse(message.Body);
         messageJson.RootElement.GetProperty("kind").GetString().ShouldBe("roundtrip");
 
-        await fixture.Client.DeleteAsync(fixture.Queue, messageId, TestContext.Current.CancellationToken);
-        var afterDelete = await fixture.Client.ReadAsync(fixture.Queue, 1, 10, TestContext.Current.CancellationToken);
+        await fixture.Client.DeleteAsync(
+            fixture.Queue,
+            messageId,
+            TestContext.Current.CancellationToken
+        );
+        var afterDelete = await fixture.Client.ReadAsync(
+            fixture.Queue,
+            1,
+            10,
+            TestContext.Current.CancellationToken
+        );
         afterDelete.ShouldNotContain(item => item.Id == messageId);
     }
 
@@ -80,43 +110,74 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         var domainEventId = Guid.NewGuid();
         var queue = fixture.CreateQueue();
 
-        await using (var setupConnection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
+        await using (
+            var setupConnection = await fixture.DataSource.OpenConnectionAsync(
+                TestContext.Current.CancellationToken
+            )
+        )
         {
-            await setupConnection.ExecuteAsync(new CommandDefinition("""
-                CREATE TABLE IF NOT EXISTS integration_domain_events (
-                    id uuid PRIMARY KEY,
-                    created_at timestamptz NOT NULL
-                );
-                """, cancellationToken: TestContext.Current.CancellationToken));
+            await setupConnection.ExecuteAsync(
+                new CommandDefinition(
+                    """
+                    CREATE TABLE IF NOT EXISTS integration_domain_events (
+                        id uuid PRIMARY KEY,
+                        created_at timestamptz NOT NULL
+                    );
+                    """,
+                    cancellationToken: TestContext.Current.CancellationToken
+                )
+            );
         }
 
         long messageId;
-        await using (var connection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
-        await using (var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken))
+        await using (
+            var connection = await fixture.DataSource.OpenConnectionAsync(
+                TestContext.Current.CancellationToken
+            )
+        )
+        await using (
+            var transaction = await connection.BeginTransactionAsync(
+                TestContext.Current.CancellationToken
+            )
+        )
         {
-            await connection.ExecuteAsync(new CommandDefinition(
-                "INSERT INTO integration_domain_events (id, created_at) VALUES (@domainEventId, now())",
-                new { domainEventId },
-                transaction,
-                cancellationToken: TestContext.Current.CancellationToken));
+            await connection.ExecuteAsync(
+                new CommandDefinition(
+                    "INSERT INTO integration_domain_events (id, created_at) VALUES (@domainEventId, now())",
+                    new { domainEventId },
+                    transaction,
+                    cancellationToken: TestContext.Current.CancellationToken
+                )
+            );
             messageId = await queue.SendAsync(
                 fixture.Queue,
                 new TransactionalMessage(domainEventId),
                 new QueueSendOptions { IdempotencyKey = $"transactional:{domainEventId:N}" },
                 transaction,
-                TestContext.Current.CancellationToken);
+                TestContext.Current.CancellationToken
+            );
 
             await transaction.RollbackAsync(TestContext.Current.CancellationToken);
         }
 
-        await using var verificationConnection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        var domainEventCount = await verificationConnection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT count(*) FROM integration_domain_events WHERE id = @domainEventId",
-            new { domainEventId },
-            cancellationToken: TestContext.Current.CancellationToken));
+        await using var verificationConnection = await fixture.DataSource.OpenConnectionAsync(
+            TestContext.Current.CancellationToken
+        );
+        var domainEventCount = await verificationConnection.ExecuteScalarAsync<int>(
+            new CommandDefinition(
+                "SELECT count(*) FROM integration_domain_events WHERE id = @domainEventId",
+                new { domainEventId },
+                cancellationToken: TestContext.Current.CancellationToken
+            )
+        );
         domainEventCount.ShouldBe(0);
 
-        var messages = await fixture.Client.ReadAsync(fixture.Queue, 1, 100, TestContext.Current.CancellationToken);
+        var messages = await fixture.Client.ReadAsync(
+            fixture.Queue,
+            1,
+            100,
+            TestContext.Current.CancellationToken
+        );
         messages.ShouldNotContain(message => message.Id == messageId);
     }
 
@@ -128,13 +189,16 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         QueueBatchItem<TransactionalMessage>[] messages =
         [
             new(new(Guid.NewGuid()), new() { IdempotencyKey = "valid" }),
-            new(new(Guid.NewGuid()), new() { IdempotencyKey = " " })
+            new(new(Guid.NewGuid()), new() { IdempotencyKey = " " }),
         ];
 
-        await Should.ThrowAsync<ArgumentException>(() => queue.SendBatchAsync(queueName, messages,
-            TestContext.Current.CancellationToken));
+        await Should.ThrowAsync<ArgumentException>(() =>
+            queue.SendBatchAsync(queueName, messages, TestContext.Current.CancellationToken)
+        );
 
-        (await fixture.Client.ReadAsync(queueName, 1, 10, TestContext.Current.CancellationToken)).ShouldBeEmpty();
+        (
+            await fixture.Client.ReadAsync(queueName, 1, 10, TestContext.Current.CancellationToken)
+        ).ShouldBeEmpty();
     }
 
     [Fact]
@@ -145,37 +209,74 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         QueueBatchItem<TransactionalMessage>[] messages =
         [
             new(new(Guid.NewGuid()), new() { IdempotencyKey = "first" }),
-            new(new(Guid.NewGuid()), new() { IdempotencyKey = "second" })
+            new(new(Guid.NewGuid()), new() { IdempotencyKey = "second" }),
         ];
-        await using var connection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await using (var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken))
+        await using var connection = await fixture.DataSource.OpenConnectionAsync(
+            TestContext.Current.CancellationToken
+        );
+        await using (
+            var transaction = await connection.BeginTransactionAsync(
+                TestContext.Current.CancellationToken
+            )
+        )
         {
-            await queue.SendBatchAsync(queueName, messages, transaction, TestContext.Current.CancellationToken);
-            (await connection.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT count(*) FROM pgmq.q_{queueName}",
-                transaction: transaction, cancellationToken: TestContext.Current.CancellationToken))).ShouldBe(2);
+            await queue.SendBatchAsync(
+                queueName,
+                messages,
+                transaction,
+                TestContext.Current.CancellationToken
+            );
+            (
+                await connection.ExecuteScalarAsync<int>(
+                    new CommandDefinition(
+                        $"SELECT count(*) FROM pgmq.q_{queueName}",
+                        transaction: transaction,
+                        cancellationToken: TestContext.Current.CancellationToken
+                    )
+                )
+            ).ShouldBe(2);
             await transaction.RollbackAsync(TestContext.Current.CancellationToken);
         }
-        (await fixture.Client.ReadAsync(queueName, 1, 10, TestContext.Current.CancellationToken)).ShouldBeEmpty();
+        (
+            await fixture.Client.ReadAsync(queueName, 1, 10, TestContext.Current.CancellationToken)
+        ).ShouldBeEmpty();
     }
 
     [Fact]
     public async Task SendBatch_CanceledPoolWaitDoesNotInsertMessagesOrLeakConnection()
     {
         var queueName = await CreateQueueAsync();
-        var builder = new Npgsql.NpgsqlConnectionStringBuilder(fixture.ConnectionString) { MaxPoolSize = 1 };
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+        {
+            MaxPoolSize = 1,
+        };
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(builder.ConnectionString);
         var queue = fixture.CreateQueue(new PgmqClient(dataSource));
         QueueBatchItem<TransactionalMessage>[] messages =
-            [new(new(Guid.NewGuid()), new() { IdempotencyKey = "canceled" })];
-        await using (var blocker = await dataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
+        [
+            new(new(Guid.NewGuid()), new() { IdempotencyKey = "canceled" }),
+        ];
+        await using (
+            var blocker = await dataSource.OpenConnectionAsync(
+                TestContext.Current.CancellationToken
+            )
+        )
         {
             using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
-            await Should.ThrowAsync<OperationCanceledException>(() => queue.SendBatchAsync(queueName, messages, cancellation.Token));
+            await Should.ThrowAsync<OperationCanceledException>(() =>
+                queue.SendBatchAsync(queueName, messages, cancellation.Token)
+            );
         }
         using var verification = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         await using var connection = await dataSource.OpenConnectionAsync(verification.Token);
-        (await connection.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT count(*) FROM pgmq.q_{queueName}",
-            cancellationToken: verification.Token))).ShouldBe(0);
+        (
+            await connection.ExecuteScalarAsync<int>(
+                new CommandDefinition(
+                    $"SELECT count(*) FROM pgmq.q_{queueName}",
+                    cancellationToken: verification.Token
+                )
+            )
+        ).ShouldBe(0);
     }
 
     [Fact]
@@ -184,49 +285,109 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         var store = new PgmqIdempotencyStore(fixture.DataSource);
         var consumer = $"waiting-{Guid.NewGuid():N}";
         var key = "expired";
-        await store.TryAcquireAsync(consumer, key, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        await using var blocker = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await blocker.ExecuteAsync(new CommandDefinition("""
-            UPDATE monixone_queue.idempotency_keys SET lease_expires_at = clock_timestamp() - interval '1 second'
-            WHERE consumer_name = @consumer AND idempotency_key = @key;
-            """, new { consumer, key }, cancellationToken: TestContext.Current.CancellationToken));
-        await using var transaction = await blocker.BeginTransactionAsync(TestContext.Current.CancellationToken);
-        await blocker.ExecuteAsync(new CommandDefinition("""
-            SELECT 1 FROM monixone_queue.idempotency_keys
-            WHERE consumer_name = @consumer AND idempotency_key = @key FOR UPDATE;
-            """, new { consumer, key }, transaction, cancellationToken: TestContext.Current.CancellationToken));
+        await store.TryAcquireAsync(
+            consumer,
+            key,
+            TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken
+        );
+        await using var blocker = await fixture.DataSource.OpenConnectionAsync(
+            TestContext.Current.CancellationToken
+        );
+        await blocker.ExecuteAsync(
+            new CommandDefinition(
+                """
+                UPDATE monixone_queue.idempotency_keys SET lease_expires_at = clock_timestamp() - interval '1 second'
+                WHERE consumer_name = @consumer AND idempotency_key = @key;
+                """,
+                new { consumer, key },
+                cancellationToken: TestContext.Current.CancellationToken
+            )
+        );
+        await using var transaction = await blocker.BeginTransactionAsync(
+            TestContext.Current.CancellationToken
+        );
+        await blocker.ExecuteAsync(
+            new CommandDefinition(
+                """
+                SELECT 1 FROM monixone_queue.idempotency_keys
+                WHERE consumer_name = @consumer AND idempotency_key = @key FOR UPDATE;
+                """,
+                new { consumer, key },
+                transaction,
+                cancellationToken: TestContext.Current.CancellationToken
+            )
+        );
         var applicationName = $"lease-wait-{Guid.NewGuid():N}";
-        var builder = new Npgsql.NpgsqlConnectionStringBuilder(fixture.ConnectionString) { ApplicationName = applicationName };
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+        {
+            ApplicationName = applicationName,
+        };
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(builder.ConnectionString);
-        var acquisition = new PgmqIdempotencyStore(dataSource).TryAcquireAsync(consumer, key,
-            TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        var acquisition = new PgmqIdempotencyStore(dataSource).TryAcquireAsync(
+            consumer,
+            key,
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken
+        );
 
         await WaitForRowLockAsync(applicationName);
         await Task.Delay(TimeSpan.FromMilliseconds(1200), TestContext.Current.CancellationToken);
         await transaction.RollbackAsync(TestContext.Current.CancellationToken);
 
-        var claim = await acquisition.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var claim = await acquisition.WaitAsync(
+            TimeSpan.FromSeconds(3),
+            TestContext.Current.CancellationToken
+        );
         claim.IsAcquired.ShouldBeTrue();
-        (await blocker.ExecuteScalarAsync<bool>(new CommandDefinition("""
-            SELECT lease_expires_at > clock_timestamp() FROM monixone_queue.idempotency_keys
-            WHERE consumer_name = @consumer AND idempotency_key = @key;
-            """, new { consumer, key }, cancellationToken: TestContext.Current.CancellationToken))).ShouldBeTrue();
+        (
+            await blocker.ExecuteScalarAsync<bool>(
+                new CommandDefinition(
+                    """
+                    SELECT lease_expires_at > clock_timestamp() FROM monixone_queue.idempotency_keys
+                    WHERE consumer_name = @consumer AND idempotency_key = @key;
+                    """,
+                    new { consumer, key },
+                    cancellationToken: TestContext.Current.CancellationToken
+                )
+            )
+        ).ShouldBeTrue();
     }
 
     [Fact]
     public async Task Read_VisibilityTimeoutExpires_MessageIsRedelivered()
     {
-        var messageId = await fixture.Client.SendAsync(fixture.Queue, """{"kind":"visibility"}""", TestContext.Current.CancellationToken);
-        var firstDelivery = (await fixture.Client.ReadAsync(fixture.Queue, 1, 10, TestContext.Current.CancellationToken))
-            .Single(item => item.Id == messageId);
+        var messageId = await fixture.Client.SendAsync(
+            fixture.Queue,
+            """{"kind":"visibility"}""",
+            TestContext.Current.CancellationToken
+        );
+        var firstDelivery = (
+            await fixture.Client.ReadAsync(
+                fixture.Queue,
+                1,
+                10,
+                TestContext.Current.CancellationToken
+            )
+        ).Single(item => item.Id == messageId);
 
         await Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
-        var secondDelivery = (await fixture.Client.ReadAsync(fixture.Queue, 30, 10, TestContext.Current.CancellationToken))
-            .Single(item => item.Id == messageId);
+        var secondDelivery = (
+            await fixture.Client.ReadAsync(
+                fixture.Queue,
+                30,
+                10,
+                TestContext.Current.CancellationToken
+            )
+        ).Single(item => item.Id == messageId);
 
         firstDelivery.ReadCount.ShouldBe(1);
         secondDelivery.ReadCount.ShouldBe(2);
-        await fixture.Client.DeleteAsync(fixture.Queue, messageId, TestContext.Current.CancellationToken);
+        await fixture.Client.DeleteAsync(
+            fixture.Queue,
+            messageId,
+            TestContext.Current.CancellationToken
+        );
     }
 
     [Fact]
@@ -237,15 +398,38 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         var key = $"notification:{Guid.NewGuid():N}";
 
         var claims = await Task.WhenAll(
-            store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken),
-            store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken));
+            store.TryAcquireAsync(
+                consumer,
+                key,
+                TimeSpan.FromMinutes(1),
+                TestContext.Current.CancellationToken
+            ),
+            store.TryAcquireAsync(
+                consumer,
+                key,
+                TimeSpan.FromMinutes(1),
+                TestContext.Current.CancellationToken
+            )
+        );
 
         claims.Count(claim => claim.IsAcquired).ShouldBe(1);
         claims.Count(claim => claim.IsInProgress).ShouldBe(1);
         var acquired = claims.Single(claim => claim.IsAcquired);
-        (await store.CompleteAsync(consumer, key, acquired.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
+        (
+            await store.CompleteAsync(
+                consumer,
+                key,
+                acquired.LeaseToken!.Value,
+                TestContext.Current.CancellationToken
+            )
+        ).ShouldBeTrue();
 
-        var duplicate = await store.TryAcquireAsync(consumer, key, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
+        var duplicate = await store.TryAcquireAsync(
+            consumer,
+            key,
+            TimeSpan.FromMinutes(1),
+            TestContext.Current.CancellationToken
+        );
         duplicate.IsCompleted.ShouldBeTrue();
     }
 
@@ -257,52 +441,107 @@ public sealed class PgmqClientIntegrationTests(PgmqContainerFixture fixture)
         var firstKey = $"first:{Guid.NewGuid():N}";
         var secondKey = $"second:{Guid.NewGuid():N}";
 
-        var firstClaim = await store.TryAcquireAsync(consumer, firstKey, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
-        var secondClaim = await store.TryAcquireAsync(consumer, secondKey, TimeSpan.FromMinutes(1), TestContext.Current.CancellationToken);
-        (await store.CompleteAsync(consumer, firstKey, firstClaim.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
-        (await store.CompleteAsync(consumer, secondKey, secondClaim.LeaseToken!.Value, TestContext.Current.CancellationToken)).ShouldBeTrue();
+        var firstClaim = await store.TryAcquireAsync(
+            consumer,
+            firstKey,
+            TimeSpan.FromMinutes(1),
+            TestContext.Current.CancellationToken
+        );
+        var secondClaim = await store.TryAcquireAsync(
+            consumer,
+            secondKey,
+            TimeSpan.FromMinutes(1),
+            TestContext.Current.CancellationToken
+        );
+        (
+            await store.CompleteAsync(
+                consumer,
+                firstKey,
+                firstClaim.LeaseToken!.Value,
+                TestContext.Current.CancellationToken
+            )
+        ).ShouldBeTrue();
+        (
+            await store.CompleteAsync(
+                consumer,
+                secondKey,
+                secondClaim.LeaseToken!.Value,
+                TestContext.Current.CancellationToken
+            )
+        ).ShouldBeTrue();
 
-        await using var connection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await connection.ExecuteAsync(new CommandDefinition("""
-            UPDATE monixone_queue.idempotency_keys
-            SET completed_at = now() - interval '2 days'
-            WHERE consumer_name = @consumer;
-            """,
-            new { consumer },
-            cancellationToken: TestContext.Current.CancellationToken));
+        await using var connection = await fixture.DataSource.OpenConnectionAsync(
+            TestContext.Current.CancellationToken
+        );
+        await connection.ExecuteAsync(
+            new CommandDefinition(
+                """
+                UPDATE monixone_queue.idempotency_keys
+                SET completed_at = now() - interval '2 days'
+                WHERE consumer_name = @consumer;
+                """,
+                new { consumer },
+                cancellationToken: TestContext.Current.CancellationToken
+            )
+        );
 
-        var deleted = await store.DeleteCompletedAsync(DateTimeOffset.UtcNow.AddDays(-1), 1, TestContext.Current.CancellationToken);
+        var deleted = await store.DeleteCompletedAsync(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            1,
+            TestContext.Current.CancellationToken
+        );
         deleted.ShouldBe(1);
 
-        var remaining = await connection.QuerySingleAsync<int>(new CommandDefinition("""
-            SELECT count(*)
-            FROM monixone_queue.idempotency_keys
-            WHERE consumer_name = @consumer
-              AND status = 'completed';
-            """,
-            new { consumer },
-            cancellationToken: TestContext.Current.CancellationToken));
+        var remaining = await connection.QuerySingleAsync<int>(
+            new CommandDefinition(
+                """
+                SELECT count(*)
+                FROM monixone_queue.idempotency_keys
+                WHERE consumer_name = @consumer
+                  AND status = 'completed';
+                """,
+                new { consumer },
+                cancellationToken: TestContext.Current.CancellationToken
+            )
+        );
         remaining.ShouldBe(1);
     }
 
     private async Task<string> CreateQueueAsync()
     {
         var queue = $"batch_{Guid.NewGuid():N}";
-        await using var connection = await fixture.DataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await connection.ExecuteAsync(new CommandDefinition("SELECT pgmq.create(@queue)", new { queue },
-            cancellationToken: TestContext.Current.CancellationToken));
+        await using var connection = await fixture.DataSource.OpenConnectionAsync(
+            TestContext.Current.CancellationToken
+        );
+        await connection.ExecuteAsync(
+            new CommandDefinition(
+                "SELECT pgmq.create(@queue)",
+                new { queue },
+                cancellationToken: TestContext.Current.CancellationToken
+            )
+        );
         return queue;
     }
 
     private async Task WaitForRowLockAsync(string applicationName)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken
+        );
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         await using var connection = await fixture.DataSource.OpenConnectionAsync(timeout.Token);
-        while (!await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
-            SELECT EXISTS (SELECT 1 FROM pg_stat_activity
-                WHERE application_name = @applicationName AND wait_event_type = 'Lock');
-            """, new { applicationName }, cancellationToken: timeout.Token)))
+        while (
+            !await connection.ExecuteScalarAsync<bool>(
+                new CommandDefinition(
+                    """
+                    SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+                        WHERE application_name = @applicationName AND wait_event_type = 'Lock');
+                    """,
+                    new { applicationName },
+                    cancellationToken: timeout.Token
+                )
+            )
+        )
             await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
     }
 

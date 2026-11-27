@@ -9,6 +9,7 @@ namespace MonixOne.Queue.Pgmq.Tests;
 public sealed class PgmqContainerFixture : IAsyncLifetime
 {
     private const string QueueName = "integration_messages";
+
     // A fresh PGMQ-enabled PostgreSQL instance keeps tests independent from developer databases and configuration.
     private PostgreSqlContainer? _container;
 
@@ -18,8 +19,13 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
     public string DeadLetterQueue => PgmqOptions.DefaultDeadLetterQueue;
     internal string ConnectionString => _container!.GetConnectionString();
 
-    internal PgmqQueue CreateQueue(PgmqClient? client = null) => new(client ?? Client, new QueueJsonSerializer(),
-        NullLogger<PgmqQueue>.Instance, Options.Create(new PgmqOptions { DeadLetterQueue = DeadLetterQueue }));
+    internal PgmqQueue CreateQueue(PgmqClient? client = null) =>
+        new(
+            client ?? Client,
+            new QueueJsonSerializer(),
+            NullLogger<PgmqQueue>.Instance,
+            Options.Create(new PgmqOptions { DeadLetterQueue = DeadLetterQueue })
+        );
 
     public async ValueTask InitializeAsync()
     {
@@ -34,14 +40,17 @@ public sealed class PgmqContainerFixture : IAsyncLifetime
 
         var initializer = new PgmqInitializer(
             DataSource,
-            Options.Create(new PgmqOptions
-            {
-                Consumers = new Dictionary<string, PgmqConsumerOptions>
+            Options.Create(
+                new PgmqOptions
                 {
-                    ["Integration"] = new() { Queue = QueueName }
+                    Consumers = new Dictionary<string, PgmqConsumerOptions>
+                    {
+                        ["Integration"] = new() { Queue = QueueName },
+                    },
                 }
-            }),
-            NullLogger<PgmqInitializer>.Instance);
+            ),
+            NullLogger<PgmqInitializer>.Instance
+        );
         await initializer.StartAsync(TestContext.Current.CancellationToken);
 
         Client = new PgmqClient(DataSource);

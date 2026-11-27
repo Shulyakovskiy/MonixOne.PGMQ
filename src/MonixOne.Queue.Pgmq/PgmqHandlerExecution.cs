@@ -15,16 +15,21 @@ internal static class PgmqHandlerExecution
         TimeSpan cancellationGracePeriod,
         ILogger logger,
         CancellationToken cancellationToken,
-        TimeSpan? heartbeatShutdownTimeout = null)
+        TimeSpan? heartbeatShutdownTimeout = null
+    )
     {
         cancellationToken.ThrowIfCancellationRequested();
         // The host token only signals the watchdog. Arbitrary cancellation callbacks run through
         // CancelAsync and cannot block Host.StopAsync synchronously.
         var handlerCancellation = new CancellationTokenSource();
         var heartbeatCancellation = new CancellationTokenSource();
-        var stopSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopSignal = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         using var stopRegistration = cancellationToken.UnsafeRegister(
-            static state => ((TaskCompletionSource)state!).TrySetResult(), stopSignal);
+            static state => ((TaskCompletionSource)state!).TrySetResult(),
+            stopSignal
+        );
         var handlerToken = handlerCancellation.Token;
         // Isolate synchronous handler code and cancel queued work before it starts.
         var handlerTask = Task.Run(() => handle(handlerToken), handlerToken);
@@ -34,7 +39,9 @@ internal static class PgmqHandlerExecution
         {
             await Task.WhenAny(handlerTask, heartbeatTask, stopSignal.Task);
             var heartbeatCancellationTask = heartbeatCancellation.CancelAsync();
-            var handlerCancellationTask = handlerTask.IsCompleted ? Task.CompletedTask : handlerCancellation.CancelAsync();
+            var handlerCancellationTask = handlerTask.IsCompleted
+                ? Task.CompletedTask
+                : handlerCancellation.CancelAsync();
             var handlerDrain = Task.WhenAll(handlerTask, handlerCancellationTask);
             var heartbeatDrain = Task.WhenAll(heartbeatTask, heartbeatCancellationTask);
             processing = Task.WhenAll(handlerDrain, heartbeatDrain);
@@ -42,9 +49,21 @@ internal static class PgmqHandlerExecution
             // Waits run concurrently, each with its own bound. Expired processing/host tokens must
             // not interrupt the drain before scopes and in-flight SQL are released.
             await Task.WhenAll(
-                DrainAsync(handlerDrain, handlerCancellationTask, cancellationGracePeriod, "handler", logger),
-                DrainAsync(heartbeatDrain, heartbeatCancellationTask,
-                    heartbeatShutdownTimeout ?? cancellationGracePeriod, "heartbeat", logger));
+                DrainAsync(
+                    handlerDrain,
+                    handlerCancellationTask,
+                    cancellationGracePeriod,
+                    "handler",
+                    logger
+                ),
+                DrainAsync(
+                    heartbeatDrain,
+                    heartbeatCancellationTask,
+                    heartbeatShutdownTimeout ?? cancellationGracePeriod,
+                    "heartbeat",
+                    logger
+                )
+            );
 
             // Prefer an ownership failure to the handler cancellation it caused.
             await heartbeatTask;
@@ -63,12 +82,23 @@ internal static class PgmqHandlerExecution
             {
                 // A detached task still owns its scope, token sources and cancellation callbacks.
                 // Release them only after actual completion; the caller retains the lease.
-                _ = ObserveLateProcessingAsync(processing, handlerCancellation, heartbeatCancellation, logger);
+                _ = ObserveLateProcessingAsync(
+                    processing,
+                    handlerCancellation,
+                    heartbeatCancellation,
+                    logger
+                );
             }
         }
     }
 
-    private static async Task DrainAsync(Task drain, Task cancellation, TimeSpan timeout, string component, ILogger logger)
+    private static async Task DrainAsync(
+        Task drain,
+        Task cancellation,
+        TimeSpan timeout,
+        string component,
+        ILogger logger
+    )
     {
         try
         {
@@ -85,11 +115,19 @@ internal static class PgmqHandlerExecution
             // Work failures are propagated after both drains. Callback failures must not bypass
             // resource cleanup or hide the original ownership/handler error.
             if (cancellation.IsFaulted)
-                logger.LogError(cancellation.Exception, "PGMQ {Component} cancellation callback failed.", component);
+                logger.LogError(
+                    cancellation.Exception,
+                    "PGMQ {Component} cancellation callback failed.",
+                    component
+                );
         }
     }
 
-    private static async Task HeartbeatAsync(Func<CancellationToken, Task> renew, TimeSpan interval, CancellationToken token)
+    private static async Task HeartbeatAsync(
+        Func<CancellationToken, Task> renew,
+        TimeSpan interval,
+        CancellationToken token
+    )
     {
         using var timer = new PeriodicTimer(interval);
         try
@@ -100,13 +138,25 @@ internal static class PgmqHandlerExecution
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     }
 
-    private static async Task ObserveLateProcessingAsync(Task task, CancellationTokenSource handlerCancellation,
-        CancellationTokenSource heartbeatCancellation, ILogger logger)
+    private static async Task ObserveLateProcessingAsync(
+        Task task,
+        CancellationTokenSource handlerCancellation,
+        CancellationTokenSource heartbeatCancellation,
+        ILogger logger
+    )
     {
         try
-        { await task; }
+        {
+            await task;
+        }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { logger.LogError(exception, "PGMQ abandoned processing eventually failed during application shutdown."); }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "PGMQ abandoned processing eventually failed during application shutdown."
+            );
+        }
         finally
         {
             handlerCancellation.Dispose();
@@ -118,5 +168,10 @@ internal static class PgmqHandlerExecution
 internal sealed class PgmqLeaseLostException(Exception? innerException = null)
     : Exception("The PGMQ delivery lease was lost.", innerException);
 
-internal sealed class PgmqHandlerUnresponsiveException(TimeSpan gracePeriod, string component = "handler")
-    : Exception($"PGMQ {component} did not stop within the cancellation grace period of {gracePeriod}.");
+internal sealed class PgmqHandlerUnresponsiveException(
+    TimeSpan gracePeriod,
+    string component = "handler"
+)
+    : Exception(
+        $"PGMQ {component} did not stop within the cancellation grace period of {gracePeriod}."
+    );

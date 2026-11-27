@@ -10,13 +10,15 @@ public interface IQueue
     /// </summary>
     Task<QueueDeadLetterPage> GetDeadLetterMessagesAsync(
         QueueDeadLetterQuery? query = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     Task<long> SendAsync<T>(
         string queue,
         T message,
         QueueSendOptions options,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Adds a message to PGMQ through the transaction that owns the domain write.
@@ -27,7 +29,8 @@ public interface IQueue
         T message,
         QueueSendOptions options,
         DbTransaction transaction,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Validates and serializes the batch before inserting all messages through one atomic SQL command.
@@ -35,7 +38,8 @@ public interface IQueue
     Task SendBatchAsync<T>(
         string queue,
         IReadOnlyCollection<QueueBatchItem<T>> messages,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Adds all messages through the transaction that owns the domain write.
@@ -45,5 +49,6 @@ public interface IQueue
         string queue,
         IReadOnlyCollection<QueueBatchItem<T>> messages,
         DbTransaction transaction,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 }

@@ -9,15 +9,18 @@ public sealed class QueueDeadLetterQuery
     /// Optional original source queue name. Omit to include all source queues.
     /// </summary>
     public string? Queue { get; init; }
+
     /// <summary>
     /// Optional stable message type from QueueMessageAttribute. Omit to include all topics.
     /// </summary>
     public string? Topic { get; init; }
+
     /// <summary>
     /// Return entries with shared DLQ identifiers greater than this value.
     /// Zero starts at the beginning.
     /// </summary>
     public long AfterId { get; init; }
+
     /// <summary>
     /// Maximum returned entries, from 1 to 500. Each call releases its database connection.
     /// </summary>
@@ -33,7 +36,10 @@ public sealed class QueueDeadLetterQuery
 /// <param name="NextAfterId">
 /// Pass as AfterId with the same filters to request the next page.
 /// </param>
-public sealed record QueueDeadLetterPage(IReadOnlyList<QueueDeadLetterMessage> Messages, long? NextAfterId);
+public sealed record QueueDeadLetterPage(
+    IReadOnlyList<QueueDeadLetterMessage> Messages,
+    long? NextAfterId
+);
 
 /// <summary>
 /// A failed delivery stored in the shared dead-letter queue, including routing and failure details.
@@ -79,4 +85,5 @@ public sealed record QueueDeadLetterMessage(
     int DeliveryCount,
     DateTimeOffset FailedAt,
     string ExceptionType,
-    string ErrorMessage);
+    string ErrorMessage
+);

@@ -21,9 +21,12 @@ public sealed class PgmqOptionsValidatorTests
                 PollingInterval = TimeSpan.FromSeconds(2),
                 MaxAttempts = 7,
                 Concurrency = 3,
-                RetryDelays = [TimeSpan.FromSeconds(10)]
+                RetryDelays = [TimeSpan.FromSeconds(10)],
             },
-            Consumers = new Dictionary<string, PgmqConsumerOptions> { ["Notifications"] = consumer }
+            Consumers = new Dictionary<string, PgmqConsumerOptions>
+            {
+                ["Notifications"] = consumer,
+            },
         };
 
         var result = new PgmqOptionsValidator().Validate(null, options);
@@ -42,20 +45,27 @@ public sealed class PgmqOptionsValidatorTests
     {
         var options = new PgmqOptions
         {
-            ConnectionString = "Host=localhost", DeadLetterQueue = "shared_dlq",
-            Consumers = new() { ["Invalid"] = new() { Queue = "SHARED_DLQ" } }
+            ConnectionString = "Host=localhost",
+            DeadLetterQueue = "shared_dlq",
+            Consumers = new() { ["Invalid"] = new() { Queue = "SHARED_DLQ" } },
         };
 
         var result = new PgmqOptionsValidator().Validate(null, options);
 
         result.Failed.ShouldBeTrue();
-        result.Failures.ShouldContain("Queue:Consumers:Invalid:Queue must differ from the shared DeadLetterQueue.");
+        result.Failures.ShouldContain(
+            "Queue:Consumers:Invalid:Queue must differ from the shared DeadLetterQueue."
+        );
     }
 
     [Fact]
     public void Validate_EmptySharedDlq_ReturnsFailure()
     {
-        var options = new PgmqOptions { ConnectionString = "Host=localhost", DeadLetterQueue = " " };
+        var options = new PgmqOptions
+        {
+            ConnectionString = "Host=localhost",
+            DeadLetterQueue = " ",
+        };
 
         var result = new PgmqOptionsValidator().Validate(null, options);
         result.Failed.ShouldBeTrue();
@@ -69,8 +79,8 @@ public sealed class PgmqOptionsValidatorTests
         {
             Consumers = new Dictionary<string, PgmqConsumerOptions>
             {
-                ["Notifications"] = new() { Queue = "notifications" }
-            }
+                ["Notifications"] = new() { Queue = "notifications" },
+            },
         };
 
         var result = new PgmqOptionsValidator().Validate(null, options);
@@ -87,15 +97,17 @@ public sealed class PgmqOptionsValidatorTests
             ConnectionString = "Host=localhost;Database=queue",
             Consumers = new Dictionary<string, PgmqConsumerOptions>
             {
-                ["Notifications"] = new() { Queue = "", BatchSize = -1 }
-            }
+                ["Notifications"] = new() { Queue = "", BatchSize = -1 },
+            },
         };
 
         var result = new PgmqOptionsValidator().Validate(null, options);
 
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldContain("Queue:Consumers:Notifications:Queue is required.");
-        result.Failures.ShouldContain("Queue:Consumers:Notifications:BatchSize must be greater than zero.");
+        result.Failures.ShouldContain(
+            "Queue:Consumers:Notifications:BatchSize must be greater than zero."
+        );
     }
 
     [Fact]
@@ -106,25 +118,35 @@ public sealed class PgmqOptionsValidatorTests
             ConnectionString = "Host=localhost;Database=queue",
             CompletedIdempotencyRetention = TimeSpan.Zero,
             IdempotencyCleanupInterval = TimeSpan.Zero,
-            IdempotencyCleanupBatchSize = 0
+            IdempotencyCleanupBatchSize = 0,
         };
 
         var result = new PgmqOptionsValidator().Validate(null, options);
 
         result.Failed.ShouldBeTrue();
-        result.Failures.ShouldContain("Queue:CompletedIdempotencyRetention must be greater than zero.");
-        result.Failures.ShouldContain("Queue:IdempotencyCleanupInterval must be greater than zero.");
-        result.Failures.ShouldContain("Queue:IdempotencyCleanupBatchSize must be greater than zero.");
+        result.Failures.ShouldContain(
+            "Queue:CompletedIdempotencyRetention must be greater than zero."
+        );
+        result.Failures.ShouldContain(
+            "Queue:IdempotencyCleanupInterval must be greater than zero."
+        );
+        result.Failures.ShouldContain(
+            "Queue:IdempotencyCleanupBatchSize must be greater than zero."
+        );
     }
 
     [Fact]
     public void Validate_ConsumerIncreasesProcessingLimit_DerivesItsOwnLease()
     {
-        var consumer = new PgmqConsumerOptions { Queue = "relay", MaxProcessingDuration = TimeSpan.FromMinutes(5) };
+        var consumer = new PgmqConsumerOptions
+        {
+            Queue = "relay",
+            MaxProcessingDuration = TimeSpan.FromMinutes(5),
+        };
         var options = new PgmqOptions
         {
             ConnectionString = "Host=localhost",
-            Consumers = new() { ["Relay"] = consumer }
+            Consumers = new() { ["Relay"] = consumer },
         };
 
         new PgmqOptionsValidator().Validate(null, options).Succeeded.ShouldBeTrue();
@@ -142,7 +164,8 @@ public sealed class PgmqOptionsValidatorTests
         var result = new PgmqOptionsValidator().Validate(null, options);
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldContain(
-            "Queue:Defaults:IdempotencyLease must exceed MaxProcessingDuration plus max(HandlerCancellationGracePeriod, QueueOperationTimeout) plus QueueOperationTimeout.");
+            "Queue:Defaults:IdempotencyLease must exceed MaxProcessingDuration plus max(HandlerCancellationGracePeriod, QueueOperationTimeout) plus QueueOperationTimeout."
+        );
     }
 
     [Fact]
@@ -166,7 +189,8 @@ public sealed class PgmqOptionsValidatorTests
         var result = new PgmqOptionsValidator().Validate(null, options);
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldContain(
-            "Queue:Defaults:VisibilityRenewalInterval plus QueueOperationTimeout must be less than VisibilityTimeout.");
+            "Queue:Defaults:VisibilityRenewalInterval plus QueueOperationTimeout must be less than VisibilityTimeout."
+        );
     }
 
     [Fact]
@@ -174,11 +198,13 @@ public sealed class PgmqOptionsValidatorTests
     {
         var consumer = new PgmqConsumerOptions
         {
-            Queue = "relay", RetryDelays = [TimeSpan.FromSeconds(17)]
+            Queue = "relay",
+            RetryDelays = [TimeSpan.FromSeconds(17)],
         };
         var options = new PgmqOptions
         {
-            ConnectionString = "Host=localhost", Consumers = new() { ["Relay"] = consumer }
+            ConnectionString = "Host=localhost",
+            Consumers = new() { ["Relay"] = consumer },
         };
 
         new PgmqOptionsValidator().Validate(null, options).Succeeded.ShouldBeTrue();
@@ -191,7 +217,8 @@ public sealed class PgmqOptionsValidatorTests
     {
         var options = new PgmqOptions
         {
-            ConnectionString = "Host=localhost", IdempotencyCleanupInterval = TimeSpan.MaxValue
+            ConnectionString = "Host=localhost",
+            IdempotencyCleanupInterval = TimeSpan.MaxValue,
         };
         options.Defaults.PollingInterval = TimeSpan.MaxValue;
 
@@ -213,8 +240,12 @@ public sealed class PgmqOptionsValidatorTests
         var result = new PgmqOptionsValidator().Validate(null, options);
 
         result.Failed.ShouldBeTrue();
-        result.Failures.ShouldContain("Queue:Defaults:MaxProcessingDuration must be at least VisibilityTimeout.");
-        result.Failures.ShouldContain(failure => failure.Contains("HandlerCancellationGracePeriod"));
+        result.Failures.ShouldContain(
+            "Queue:Defaults:MaxProcessingDuration must be at least VisibilityTimeout."
+        );
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("HandlerCancellationGracePeriod")
+        );
         result.Failures.ShouldContain(failure => failure.Contains("QueueOperationTimeout"));
     }
 }

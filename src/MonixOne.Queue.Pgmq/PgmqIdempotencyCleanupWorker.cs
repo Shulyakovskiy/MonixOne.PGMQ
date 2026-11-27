@@ -7,7 +7,8 @@ namespace MonixOne.Queue.Pgmq;
 internal sealed class PgmqIdempotencyCleanupWorker(
     PgmqIdempotencyStore idempotencyStore,
     IOptions<PgmqOptions> options,
-    ILogger<PgmqIdempotencyCleanupWorker> logger) : BackgroundService
+    ILogger<PgmqIdempotencyCleanupWorker> logger
+) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -21,7 +22,8 @@ internal sealed class PgmqIdempotencyCleanupWorker(
                     logger.LogInformation(
                         "PGMQ completed idempotency keys deleted. Count {Count}, RetentionHours {RetentionHours}.",
                         deleted,
-                        options.Value.CompletedIdempotencyRetention.TotalHours);
+                        options.Value.CompletedIdempotencyRetention.TotalHours
+                    );
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -47,15 +49,17 @@ internal sealed class PgmqIdempotencyCleanupWorker(
         do
         {
             // Bound each batch independently, including connection-pool and row-lock waits.
-            using var batchCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using var batchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken
+            );
             batchCancellation.CancelAfter(cleanupOptions.Defaults.QueueOperationTimeout);
             batchDeleted = await idempotencyStore.DeleteCompletedAsync(
                 completedBefore,
                 cleanupOptions.IdempotencyCleanupBatchSize,
-                batchCancellation.Token);
+                batchCancellation.Token
+            );
             deleted += batchDeleted;
-        }
-        while (batchDeleted == cleanupOptions.IdempotencyCleanupBatchSize);
+        } while (batchDeleted == cleanupOptions.IdempotencyCleanupBatchSize);
 
         return deleted;
     }

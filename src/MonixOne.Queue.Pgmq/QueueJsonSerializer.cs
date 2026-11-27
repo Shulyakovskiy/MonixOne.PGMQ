@@ -1,8 +1,8 @@
-using System.Reflection;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace MonixOne.Queue.Pgmq;
 
@@ -10,7 +10,7 @@ internal sealed class QueueJsonSerializer
 {
     private readonly JsonSerializerOptions _options = new(JsonSerializerDefaults.Web)
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     public string Serialize<T>(T message, QueueSendOptions sendOptions)
@@ -19,7 +19,10 @@ internal sealed class QueueJsonSerializer
         ArgumentException.ThrowIfNullOrWhiteSpace(sendOptions.IdempotencyKey);
         if (sendOptions.IdempotencyKey.Length > 512)
         {
-            throw new ArgumentOutOfRangeException(nameof(sendOptions), "IdempotencyKey must not exceed 512 characters.");
+            throw new ArgumentOutOfRangeException(
+                nameof(sendOptions),
+                "IdempotencyKey must not exceed 512 characters."
+            );
         }
 
         var attribute = typeof(T).GetCustomAttribute<QueueMessageAttribute>();
@@ -34,13 +37,15 @@ internal sealed class QueueJsonSerializer
             // CorrelationId remains application metadata and is intentionally stored separately.
             Activity.Current?.TraceId.ToString(),
             DateTimeOffset.UtcNow,
-            message);
+            message
+        );
         return JsonSerializer.Serialize(envelope, _options);
     }
 
     public QueueEnvelope<T> Deserialize<T>(string body)
     {
-        var envelope = JsonSerializer.Deserialize<QueueEnvelope<T>>(body, _options)
+        var envelope =
+            JsonSerializer.Deserialize<QueueEnvelope<T>>(body, _options)
             ?? throw new QueueException("Queue message envelope is empty.");
         if (string.IsNullOrWhiteSpace(envelope.IdempotencyKey))
         {
@@ -49,7 +54,9 @@ internal sealed class QueueJsonSerializer
 
         // Reject poison messages before acquisition so they follow the bounded retry/DLQ path.
         if (envelope.IdempotencyKey.Length > 512)
-            throw new QueueException("Queue message idempotency key must not exceed 512 characters.");
+            throw new QueueException(
+                "Queue message idempotency key must not exceed 512 characters."
+            );
 
         return envelope;
     }
@@ -58,7 +65,8 @@ internal sealed class QueueJsonSerializer
 
     public QueueDeadLetterMessage DeserializeDeadLetter(long id, string body)
     {
-        var entry = JsonSerializer.Deserialize<QueueDeadLetterMessage>(body, _options)
+        var entry =
+            JsonSerializer.Deserialize<QueueDeadLetterMessage>(body, _options)
             ?? throw new QueueException("Dead-letter message is empty.");
         return entry with
         {
@@ -67,16 +75,18 @@ internal sealed class QueueJsonSerializer
             Queue = entry.Queue ?? "unknown",
             Topic = entry.Topic ?? GetMessageType(entry.OriginalMessage) ?? "unknown",
             ExceptionType = entry.ExceptionType ?? string.Empty,
-            ErrorMessage = entry.ErrorMessage ?? string.Empty
+            ErrorMessage = entry.ErrorMessage ?? string.Empty,
         };
     }
 
     internal string NormalizeLegacyDeadLetter(string body, string sourceQueue)
     {
         // Preserve the complete failure payload; only add routing metadata missing in old entries.
-        var entry = JsonNode.Parse(body) as JsonObject ?? new JsonObject { ["originalMessage"] = body };
+        var entry =
+            JsonNode.Parse(body) as JsonObject ?? new JsonObject { ["originalMessage"] = body };
         entry["queue"] ??= sourceQueue;
-        entry["topic"] ??= GetMessageType(entry["originalMessage"]?.GetValue<string>()) ?? "unknown";
+        entry["topic"] ??=
+            GetMessageType(entry["originalMessage"]?.GetValue<string>()) ?? "unknown";
         return entry.ToJsonString(_options);
     }
 
@@ -87,11 +97,17 @@ internal sealed class QueueJsonSerializer
         try
         {
             using var document = JsonDocument.Parse(body);
-            return document.RootElement.ValueKind == JsonValueKind.Object
+            return
+                document.RootElement.ValueKind == JsonValueKind.Object
                 && document.RootElement.TryGetProperty("type", out var type)
-                && type.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(type.GetString())
-                ? type.GetString() : null;
+                && type.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(type.GetString())
+                ? type.GetString()
+                : null;
         }
-        catch (JsonException) { return null; }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

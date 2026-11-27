@@ -11,21 +11,24 @@ public static class PgmqDeploymentScripts
     public const string Version = "v" + PgmqVersion;
     public const string RelativeDirectory = "pgmq/" + Version;
     public const string SourceArchive = "pgmq-" + Version + ".tar.gz";
-    public const string SourceArchiveSha256 = "c980705ffa2a731b69f3d26be5650d6fbcc76b2b9add67b138da4ee74a4579a5";
-    public static IReadOnlyList<string> OrderedFiles { get; } =
-    [
-        "001-create-metadata.sql"
-    ];
+    public const string SourceArchiveSha256 =
+        "c980705ffa2a731b69f3d26be5650d6fbcc76b2b9add67b138da4ee74a4579a5";
+    public static IReadOnlyList<string> OrderedFiles { get; } = ["001-create-metadata.sql"];
 
-    private static readonly Lazy<IReadOnlyDictionary<string, string>> _pgmqSqlFiles = new(ReadPgmqSqlFiles);
+    private static readonly Lazy<IReadOnlyDictionary<string, string>> _pgmqSqlFiles = new(
+        ReadPgmqSqlFiles
+    );
 
     internal static string ReadSql(string fileName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
 
         var resourceName = $"MonixOne.Queue.Pgmq.PgmqScripts.{Version}.{fileName}";
-        using var stream = typeof(PgmqDeploymentScripts).Assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"Embedded PGMQ deployment script '{fileName}' was not found.");
+        using var stream =
+            typeof(PgmqDeploymentScripts).Assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException(
+                $"Embedded PGMQ deployment script '{fileName}' was not found."
+            );
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
@@ -46,17 +49,28 @@ public static class PgmqDeploymentScripts
         {
             if (!visited.Add(currentVersion))
             {
-                throw new InvalidOperationException($"PGMQ SQL migration cycle starts at version '{currentVersion}'.");
+                throw new InvalidOperationException(
+                    $"PGMQ SQL migration cycle starts at version '{currentVersion}'."
+                );
             }
 
-            var migration = _pgmqSqlFiles.Value
-                .Where(pair => TryParseUpgrade(pair.Key, out var fromVersion, out _) && string.Equals(fromVersion, currentVersion, StringComparison.Ordinal))
-                .Select(pair => new { Sql = pair.Value, ToVersion = ParseUpgrade(pair.Key).ToVersion })
+            var migration = _pgmqSqlFiles
+                .Value.Where(pair =>
+                    TryParseUpgrade(pair.Key, out var fromVersion, out _)
+                    && string.Equals(fromVersion, currentVersion, StringComparison.Ordinal)
+                )
+                .Select(pair => new
+                {
+                    Sql = pair.Value,
+                    ToVersion = ParseUpgrade(pair.Key).ToVersion,
+                })
                 .SingleOrDefault();
 
             if (migration is null)
             {
-                throw new InvalidOperationException($"The package has no PGMQ SQL migration from '{currentVersion}' to '{PgmqVersion}'.");
+                throw new InvalidOperationException(
+                    $"The package has no PGMQ SQL migration from '{currentVersion}' to '{PgmqVersion}'."
+                );
             }
 
             applied.Add(migration.Sql);
@@ -69,13 +83,16 @@ public static class PgmqDeploymentScripts
     private static string GetPgmqSqlFile(string fileName) =>
         _pgmqSqlFiles.Value.TryGetValue(fileName, out var sql)
             ? sql
-            : throw new InvalidOperationException($"PGMQ SQL file '{fileName}' was not found in the embedded source archive.");
+            : throw new InvalidOperationException(
+                $"PGMQ SQL file '{fileName}' was not found in the embedded source archive."
+            );
 
     private static IReadOnlyDictionary<string, string> ReadPgmqSqlFiles()
     {
-        using var archive = typeof(PgmqDeploymentScripts).Assembly.GetManifestResourceStream(
-            $"MonixOne.Queue.Pgmq.PgmqArchive.{Version}.tar.gz")
-            ?? throw new InvalidOperationException("Embedded PGMQ source archive was not found.");
+        using var archive =
+            typeof(PgmqDeploymentScripts).Assembly.GetManifestResourceStream(
+                $"MonixOne.Queue.Pgmq.PgmqArchive.{Version}.tar.gz"
+            ) ?? throw new InvalidOperationException("Embedded PGMQ source archive was not found.");
         using var verifiedArchive = new MemoryStream();
         archive.CopyTo(verifiedArchive);
         verifiedArchive.Position = 0;
@@ -84,7 +101,8 @@ public static class PgmqDeploymentScripts
         if (!actualSha256.Equals(SourceArchiveSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                $"Embedded PGMQ source archive SHA-256 mismatch. Expected '{SourceArchiveSha256}', actual '{actualSha256.ToLowerInvariant()}'.");
+                $"Embedded PGMQ source archive SHA-256 mismatch. Expected '{SourceArchiveSha256}', actual '{actualSha256.ToLowerInvariant()}'."
+            );
         }
 
         verifiedArchive.Position = 0;
@@ -97,7 +115,11 @@ public static class PgmqDeploymentScripts
         TarEntry? entry;
         while ((entry = tar.GetNextEntry()) is not null)
         {
-            if (entry.DataStream is null || !entry.Name.StartsWith(sqlPrefix, StringComparison.Ordinal) || !entry.Name.EndsWith(".sql", StringComparison.Ordinal))
+            if (
+                entry.DataStream is null
+                || !entry.Name.StartsWith(sqlPrefix, StringComparison.Ordinal)
+                || !entry.Name.EndsWith(".sql", StringComparison.Ordinal)
+            )
             {
                 continue;
             }
@@ -109,14 +131,21 @@ public static class PgmqDeploymentScripts
         return files;
     }
 
-    private static bool TryParseUpgrade(string fileName, out string fromVersion, out string toVersion)
+    private static bool TryParseUpgrade(
+        string fileName,
+        out string fromVersion,
+        out string toVersion
+    )
     {
         fromVersion = string.Empty;
         toVersion = string.Empty;
         const string prefix = "pgmq--";
         const string suffix = ".sql";
 
-        if (!fileName.StartsWith(prefix, StringComparison.Ordinal) || !fileName.EndsWith(suffix, StringComparison.Ordinal))
+        if (
+            !fileName.StartsWith(prefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(suffix, StringComparison.Ordinal)
+        )
         {
             return false;
         }
